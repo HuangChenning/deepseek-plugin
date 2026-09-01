@@ -18,8 +18,7 @@ plans.
 
 ## Local setup
 
-After branch integration, the workspace root will be
-`/Users/huangcn/deepseek-plugin`. Run these commands from that root.
+Run these commands from the repository root.
 
 First, ensure the local MES CLI is authenticated:
 
