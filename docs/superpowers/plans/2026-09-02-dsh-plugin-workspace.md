@@ -272,3 +272,38 @@ Expected: all three strings appear and no version/date is invented.
 git add CHANGELOG.md docs/superpowers/specs/2026-09-02-dsh-plugin-workspace-design.md docs/superpowers/plans/2026-09-02-dsh-plugin-workspace.md
 git commit -m "docs: add project changelog"
 ```
+
+### Task 6: Redesign the repository README
+
+**Files:**
+- Create: `assets/readme/hero.svg`
+- Modify: `README.md`
+- Modify: `docs/superpowers/specs/2026-09-02-dsh-plugin-workspace-design.md`
+- Modify: `docs/superpowers/plans/2026-09-02-dsh-plugin-workspace.md`
+
+**Produces:** a concise GitHub homepage with a project-native, static SVG hero and accurate setup documentation.
+
+- [ ] **Step 1: Create `assets/readme/hero.svg` as a 1200-unit-wide, static SVG.**
+
+It must contain a title and description, use only system fonts and local SVG primitives, and show the verified flow `Browser → DSH Web → local mes CLI → plan list`. Essential labels must be at least 20 SVG units; no animation, generated imagery, remote resources, or commands inside the image.
+
+- [ ] **Step 2: Replace the one-line root README with the approved reading order.**
+
+Include the hero with meaningful alt text, then value, `mes-plan-list` capabilities, one-time profile link setup, the patched 3080 launch command, the four MES status mappings, workspace layout, read-only safety boundary, and a link to `CHANGELOG.md`. Do not claim a real MES plan query was executed.
+
+- [ ] **Step 3: Render and inspect the SVG.**
+
+Run: `sips -s format png assets/readme/hero.svg --out /tmp/mes-plan-list-hero.png`
+
+Expected: a readable PNG with no clipped text at 1200 units; also inspect a 360-pixel-wide rendition or confirm required detail remains available in adjacent Markdown.
+
+- [ ] **Step 4: Audit and commit the README.**
+
+Run: `python3 /Users/huangcn/.axon/repo/skills/beautify-github-readme/scripts/audit_readme.py README.md`
+
+Expected: the audit completes without errors.
+
+```bash
+git add README.md assets/readme/hero.svg docs/superpowers/specs/2026-09-02-dsh-plugin-workspace-design.md docs/superpowers/plans/2026-09-02-dsh-plugin-workspace.md
+git commit -m "docs: redesign repository README"
+```

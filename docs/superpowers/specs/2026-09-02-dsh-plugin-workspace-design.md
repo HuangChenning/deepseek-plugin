@@ -26,6 +26,10 @@ Each plugin is a separate workspace package with its own runtime dependencies, s
 
 `CHANGELOG.md` follows the Keep a Changelog structure. Changes remain under an `Unreleased` heading until a release version and date are explicitly chosen.
 
+## Repository README
+
+The root README uses a repository-native pure SVG hero at `assets/readme/hero.svg`. The hero describes the verified DSH plugin data flow—browser, DSH Web, local `mes` CLI, and implementation-plan list—without implying that MES production data has been queried. The README keeps commands, status mappings, and operational details in Markdown, and follows this order: value, first plugin, setup, status filtering, workspace structure, safety boundaries, and changelog.
+
 ## MES implementation-plan list plugin
 
 The plugin serves a Web page at `/plugins/mes-plan-list` and exposes a same-origin query endpoint at `POST /api/plugins/mes-plan-list/query`.
