@@ -1,3 +1,9 @@
+/**
+ * 插件页面。既能独立访问（跟随系统明暗），也能嵌在 DSH 中央列的 iframe 里，
+ * 由 client.js 通过 postMessage 推送 DSH 的明暗主题。
+ */
+import { PAGE_SIZE } from './plan-query.js'
+
 export function renderPage() {
   return `<!doctype html>
 <html lang="zh-CN">
@@ -6,40 +12,190 @@ export function renderPage() {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MES 实施计划</title>
   <style>
-    body { font: 16px system-ui, sans-serif; margin: 2rem auto; max-width: 1100px; padding: 0 1rem; color: #1f2937; }
-    form { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; }
-    label { display: grid; gap: .35rem; } button { padding: .5rem 1rem; }
-    #message { min-height: 1.5rem; margin: 1rem 0; } table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #d1d5db; padding: .55rem; text-align: left; } th { background: #f3f4f6; }
+    :root {
+      --bg: #faf9f7;
+      --surface: #ffffff;
+      --surface-sunken: #f4f2ef;
+      --border: #e5e1db;
+      --text: #2b2723;
+      --muted: #7a736b;
+      --accent: #c96442;
+      --shadow: 0 1px 2px rgb(43 39 35 / .06), 0 1px 8px rgb(43 39 35 / .04);
+      --ok-bg: #e8f3ec; --ok-fg: #1f6b42;
+      --run-bg: #e7eefb; --run-fg: #24528f;
+      --idle-bg: #eeecea; --idle-fg: #6b645c;
+      --late-bg: #fdeceb; --late-fg: #a32f26;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #1b1917; --surface: #232120; --surface-sunken: #1f1d1b; --border: #35322f;
+        --text: #ece8e3; --muted: #a09890; --accent: #e08a68;
+        --shadow: 0 1px 2px rgb(0 0 0 / .3);
+        --ok-bg: #16301f; --ok-fg: #7fca9c;
+        --run-bg: #172438; --run-fg: #8fb3e8;
+        --idle-bg: #2a2725; --idle-fg: #a09890;
+        --late-bg: #3a1d1a; --late-fg: #ec9086;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #1b1917; --surface: #232120; --surface-sunken: #1f1d1b; --border: #35322f;
+      --text: #ece8e3; --muted: #a09890; --accent: #e08a68;
+      --shadow: 0 1px 2px rgb(0 0 0 / .3);
+      --ok-bg: #16301f; --ok-fg: #7fca9c;
+      --run-bg: #172438; --run-fg: #8fb3e8;
+      --idle-bg: #2a2725; --idle-fg: #a09890;
+      --late-bg: #3a1d1a; --late-fg: #ec9086;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .shell { max-width: 1180px; margin: 0 auto; padding: 28px 24px 48px; }
+
+    header { margin-bottom: 20px; }
+    h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; letter-spacing: .01em; }
+    .lede { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .filters {
+      display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px; box-shadow: var(--shadow);
+    }
+    .field { display: grid; gap: 6px; }
+    .field > span { font-size: 12px; font-weight: 500; color: var(--muted); }
+    input, select {
+      font: inherit; color: var(--text); background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 150px;
+    }
+    input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+    button {
+      font: inherit; font-weight: 500; color: #fff; background: var(--accent);
+      border: none; border-radius: 8px; padding: 8px 20px; cursor: pointer;
+    }
+    button:hover { filter: brightness(1.06); }
+    button:disabled { opacity: .55; cursor: progress; }
+
+    .status { margin: 18px 0 12px; min-height: 20px; font-size: 13px; color: var(--muted); }
+    .status[data-tone="error"] {
+      color: var(--late-fg); background: var(--late-bg); border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 0;
+    }
+    .note { color: var(--late-fg); }
+
+    .table-wrap {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; box-shadow: var(--shadow); overflow-x: auto;
+    }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { padding: 10px 14px; text-align: left; vertical-align: top; }
+    th {
+      background: var(--surface-sunken); color: var(--muted);
+      font-weight: 500; font-size: 12px; white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr + tr td { border-top: 1px solid var(--border); }
+    tbody tr:hover td { background: var(--surface-sunken); }
+    td.title { font-weight: 500; max-width: 320px; }
+    td.company { max-width: 200px; }
+    .sub { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .dates { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .dates b { display: block; color: var(--text); font-weight: 400; }
+
+    .badge {
+      display: inline-block; white-space: nowrap; border-radius: 999px;
+      padding: 2px 9px; font-size: 12px; font-weight: 500;
+      background: var(--idle-bg); color: var(--idle-fg);
+    }
+    .badge[data-status="1"] { background: var(--run-bg); color: var(--run-fg); }
+    .badge[data-status="2"] { background: var(--ok-bg); color: var(--ok-fg); }
+    .badge[data-status="3"] { background: var(--late-bg); color: var(--late-fg); }
+
+    .empty {
+      background: var(--surface); border: 1px dashed var(--border); border-radius: 12px;
+      padding: 44px 20px; text-align: center; color: var(--muted);
+    }
   </style>
 </head>
 <body>
-  <h1>MES 实施计划</h1>
-  <form id="query-form">
-    <label>开始日期 <input name="startDate" type="date" required></label>
-    <label>结束日期 <input name="endDate" type="date" required></label>
-    <label>状态 <select name="status"><option value="">全部</option><option value="0">未开始</option><option value="1">进行中</option><option value="2">已完成</option><option value="3">逾期未完成</option></select></label>
-    <button type="submit">查询</button>
-  </form>
-  <p id="message" role="status"></p>
-  <div id="results"></div>
+  <div class="shell">
+    <header>
+      <h1>MES 实施计划</h1>
+      <p class="lede">通过本机 mes CLI 只读查询，最多返回 ${PAGE_SIZE} 条。</p>
+    </header>
+
+    <form id="query-form" class="filters">
+      <label class="field"><span>开始日期</span><input name="startDate" type="date" required></label>
+      <label class="field"><span>结束日期</span><input name="endDate" type="date" required></label>
+      <label class="field"><span>状态</span>
+        <select name="status">
+          <option value="">全部</option>
+          <option value="0">未开始</option>
+          <option value="1">进行中</option>
+          <option value="2">结束</option>
+          <option value="3">已逾期未结束</option>
+        </select>
+      </label>
+      <button type="submit">查询</button>
+    </form>
+
+    <p id="status" class="status" role="status"></p>
+    <div id="results"></div>
+  </div>
+
   <script>
     const form = document.querySelector('#query-form')
-    const message = document.querySelector('#message')
+    const submit = form.querySelector('button')
+    const status = document.querySelector('#status')
     const results = document.querySelector('#results')
+    const PAGE_SIZE = ${PAGE_SIZE}
+
+    // 面板嵌在 DSH 中央列时跟随外壳主题；独立打开时保持 prefers-color-scheme。
+    window.addEventListener('message', (event) => {
+      if (event.source !== window.parent) return
+      const mode = event.data && event.data.mesPlanTheme
+      if (mode === 'dark' || mode === 'light') document.documentElement.dataset.theme = mode
+    })
+
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character])
+    const day = (value) => String(value ?? '').slice(0, 10)
+    const executors = (plan) => (plan.executorList ?? []).map((row) => row.executorName).filter(Boolean).join('、')
+
+    const setStatus = (text, tone) => {
+      status.textContent = text
+      if (tone) status.dataset.tone = tone
+      else delete status.dataset.tone
+    }
+
+    const renderRow = (plan) => '<tr>'
+      + '<td class="company">' + escapeHtml(plan.companyName) + '</td>'
+      + '<td class="title">' + escapeHtml(plan.title)
+      + (plan.contractName ? '<span class="sub">' + escapeHtml(plan.contractName) + '</span>' : '')
+      + '</td>'
+      + '<td>' + escapeHtml(plan.checkTypeDesc) + '</td>'
+      + '<td>' + escapeHtml(executors(plan)) + '</td>'
+      + '<td class="dates"><b>' + escapeHtml(day(plan.startDate)) + '</b>' + escapeHtml(day(plan.endDate)) + '</td>'
+      + '<td><span class="badge" data-status="' + escapeHtml(plan.status) + '">' + escapeHtml(plan.statusDesc) + '</span></td>'
+      + '</tr>'
+
     const renderPlans = (plans) => {
       if (plans.length === 0) {
-        results.innerHTML = '<p>没有符合条件的实施计划。</p>'
+        results.innerHTML = '<p class="empty">该时间范围内没有符合条件的实施计划。</p>'
         return
       }
-      const fields = ['id', 'companyName', 'title', 'startDate', 'endDate', 'statusDesc']
-      const labels = ['编号', '客户', '计划名称', '开始日期', '结束日期', '状态']
-      results.innerHTML = '<table><thead><tr>' + labels.map((label) => '<th>' + label + '</th>').join('') + '</tr></thead><tbody>' + plans.map((plan) => '<tr>' + fields.map((field) => '<td>' + escapeHtml(plan[field]) + '</td>').join('') + '</tr>').join('') + '</tbody></table>'
+      const labels = ['客户', '计划', '类型', '执行人', '起止日期', '状态']
+      results.innerHTML = '<div class="table-wrap"><table><thead><tr>'
+        + labels.map((label) => '<th>' + label + '</th>').join('')
+        + '</tr></thead><tbody>' + plans.map(renderRow).join('') + '</tbody></table></div>'
     }
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault()
-      message.textContent = '正在查询…'
+      submit.disabled = true
+      setStatus('正在查询…')
       results.innerHTML = ''
       const values = new FormData(form)
       try {
@@ -50,10 +206,18 @@ export function renderPage() {
         })
         const payload = await response.json()
         if (!response.ok || !payload.ok) throw new Error(payload.error || '查询失败，请稍后重试')
-        message.textContent = '查询成功，共 ' + payload.plans.length + ' 条。'
+        const truncated = payload.total > payload.plans.length
+        setStatus(truncated
+          ? '共 ' + payload.total + ' 条，仅显示前 ' + PAGE_SIZE + ' 条，请缩小时间范围。'
+          : '共 ' + payload.plans.length + ' 条。')
+        if (truncated) status.classList.add('note')
+        else status.classList.remove('note')
         renderPlans(payload.plans)
       } catch (error) {
-        message.textContent = error.message || '查询失败，请稍后重试'
+        status.classList.remove('note')
+        setStatus(error.message || '查询失败，请稍后重试', 'error')
+      } finally {
+        submit.disabled = false
       }
     })
   </script>
