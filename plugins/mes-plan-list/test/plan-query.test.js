@@ -3,7 +3,7 @@ import test from 'node:test'
 import { Readable } from 'node:stream'
 
 import { buildPlanListArgs, queryPlans } from '../src/plan-query.js'
-import { createHandlers } from '../src/index.js'
+import { apply, createHandlers } from '../src/index.js'
 
 function makeRequest({ method = 'POST', contentType = 'application/json', body = '' } = {}) {
   const request = Readable.from(body === '' ? [] : [Buffer.from(body)])
@@ -25,6 +25,15 @@ function makeResponse() {
       this.body = body
     },
   }
+}
+
+function makeFailingRequest() {
+  const request = Readable.from((async function* () {
+    throw new Error('socket reset: internal transport detail')
+  })())
+  request.method = 'POST'
+  request.headers = { 'content-type': 'application/json' }
+  return request
 }
 
 test('rejects a JSON query without a start date before it reaches MES', async () => {
@@ -71,6 +80,61 @@ test('rejects a non-JSON query request', async () => {
 
   assert.equal(response.statusCode, 415)
   assert.deepEqual(JSON.parse(response.body), { ok: false, error: '仅支持 JSON 请求' })
+})
+
+test('hides stream read details when a JSON request disconnects', async () => {
+  const { handleQuery } = createHandlers()
+  const response = makeResponse()
+
+  await handleQuery(makeFailingRequest(), response)
+
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: '请求体读取失败' })
+})
+
+test('rejects query methods other than POST', async () => {
+  const { handleQuery } = createHandlers()
+  const response = makeResponse()
+
+  await handleQuery(makeRequest({ method: 'GET' }), response)
+
+  assert.equal(response.statusCode, 405)
+  assert.equal(response.headers.allow, 'POST')
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: '仅支持 POST 请求' })
+})
+
+test('rejects a JSON body larger than 16 KiB', async () => {
+  const { handleQuery } = createHandlers()
+  const response = makeResponse()
+
+  await handleQuery(makeRequest({ body: 'x'.repeat(16 * 1024 + 1) }), response)
+
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: '请求体不能超过 16 KiB' })
+})
+
+test('serves the query form on a GET page request', async () => {
+  const { handlePage } = createHandlers()
+  const response = makeResponse()
+
+  await handlePage(makeRequest({ method: 'GET' }), response)
+
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.headers['content-type'], 'text/html; charset=utf-8')
+  assert.match(response.body, /<form id="query-form">/)
+})
+
+test('registers the exact page and query routes', () => {
+  const routes = []
+
+  apply({ webServer: { register: (route) => routes.push(route) } })
+
+  assert.deepEqual(routes.map(({ kind, path }) => ({ kind, path })), [
+    { kind: 'exact', path: '/plugins/mes-plan-list' },
+    { kind: 'exact', path: '/api/plugins/mes-plan-list/query' },
+  ])
+  assert.equal(typeof routes[0].handler, 'function')
+  assert.equal(typeof routes[1].handler, 'function')
 })
 
 test('builds a bounded MES plan list command with status', () => {
