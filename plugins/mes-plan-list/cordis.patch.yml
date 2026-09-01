@@ -1,0 +1,3 @@
+- insert:
+    - id: mes-plan-list
+      name: ./src/index.js
