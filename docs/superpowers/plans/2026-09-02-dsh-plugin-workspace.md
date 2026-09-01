@@ -25,6 +25,7 @@
 
 - `package.json`: root workspace scripts.
 - `pnpm-workspace.yaml`: declares `plugins/*` packages.
+- `CHANGELOG.md`: records unreleased user-visible changes.
 - `docs/plugins.md`: contributor conventions and commands.
 - `plugins/mes-plan-list/package.json`: ESM package metadata and test script.
 - `plugins/mes-plan-list/cordis.patch.yml`: inserts the source plugin into a DSH profile overlay.
@@ -233,4 +234,41 @@ Expected: the plugin loads without a module-type or module-resolution warning; o
 ```bash
 git add docs/superpowers/specs/2026-09-02-dsh-plugin-workspace-design.md docs/superpowers/plans/2026-09-02-dsh-plugin-workspace.md docs/plugins.md plugins/mes-plan-list/README.md
 git commit -m "docs: document MES plan list plugin"
+```
+
+### Task 5: Add the project changelog
+
+**Files:**
+- Create: `CHANGELOG.md`
+- Modify: `docs/superpowers/specs/2026-09-02-dsh-plugin-workspace-design.md`
+- Modify: `docs/superpowers/plans/2026-09-02-dsh-plugin-workspace.md`
+
+**Produces:** a release-neutral record of the workspace and initial read-only MES plan-list plugin.
+
+- [ ] **Step 1: Create a Keep a Changelog document with an unreleased section.**
+
+```markdown
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [Unreleased]
+
+### Added
+
+- pnpm workspace for independently installable DSH plugins.
+- Read-only MES implementation-plan list Web plugin.
+```
+
+- [ ] **Step 2: Verify the document only records delivered behavior.**
+
+Run: `rg -n "Unreleased|pnpm workspace|MES implementation-plan" CHANGELOG.md`
+
+Expected: all three strings appear and no version/date is invented.
+
+- [ ] **Step 3: Commit the changelog and its approved design/plan update.**
+
+```bash
+git add CHANGELOG.md docs/superpowers/specs/2026-09-02-dsh-plugin-workspace-design.md docs/superpowers/plans/2026-09-02-dsh-plugin-workspace.md
+git commit -m "docs: add project changelog"
 ```

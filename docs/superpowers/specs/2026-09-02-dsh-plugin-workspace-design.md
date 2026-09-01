@@ -10,6 +10,7 @@ This workspace hosts independently installable DSH Web plugins. The first plugin
 .
 ├── package.json
 ├── pnpm-workspace.yaml
+├── CHANGELOG.md
 ├── plugins/
 │   └── mes-plan-list/
 │       ├── package.json
@@ -22,6 +23,8 @@ This workspace hosts independently installable DSH Web plugins. The first plugin
 ```
 
 Each plugin is a separate workspace package with its own runtime dependencies, source, tests, patch configuration, and usage instructions. The root package coordinates workspace-wide commands only. A shared package is not created until at least two plugins have a stable, tested common need.
+
+`CHANGELOG.md` follows the Keep a Changelog structure. Changes remain under an `Unreleased` heading until a release version and date are explicitly chosen.
 
 ## MES implementation-plan list plugin
 
