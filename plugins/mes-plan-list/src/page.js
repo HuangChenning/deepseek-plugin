@@ -197,6 +197,15 @@ export function renderPage() {
       </div>
       <pre id="cli-output" class="output" hidden></pre>
       <p id="cli-feedback" class="feedback" role="status"></p>
+
+      <hr class="rule">
+      <h2>本地缓存</h2>
+      <p class="hint">查询结果保存在本机数据库里，不会上传。同步时会自动覆盖此前缓存过的全部日期范围，因此不会残留已在 MES 侧删除的计划——缓存范围越大，同步越慢。清空缓存可把范围重置。</p>
+      <div class="row">
+        <span id="cache-info" class="version">读取中…</span>
+        <button type="button" id="clear-cache" class="ghost">清空缓存</button>
+      </div>
+      <p id="cache-feedback" class="feedback" role="status"></p>
     </section>
 
     <form id="query-form" class="filters">
@@ -369,6 +378,8 @@ export function renderPage() {
         setStatus('共 ' + payload.plans.length + ' 条。' + (freshness === '' ? '' : ' ' + freshness.text),
           freshness !== '' && freshness.stale ? 'stale' : undefined)
         renderPlans(payload.plans)
+        // 同步会扩大缓存覆盖的范围，设置面板里的概况要跟着变。
+        if (!payload.fromCache) loadCache()
       } catch (error) {
         setStatus(error.message || '查询失败，请稍后重试', 'error')
       } finally {
@@ -457,9 +468,52 @@ export function renderPage() {
       }
     })
 
+    const cacheInfo = document.querySelector('#cache-info')
+    const cacheFeedback = document.querySelector('#cache-feedback')
+    const clearCache = document.querySelector('#clear-cache')
+
+    const renderCache = (payload) => {
+      cacheInfo.textContent = payload.count === 0
+        ? '本机尚无缓存'
+        : payload.count + ' 条，覆盖 ' + payload.startDate + ' ~ ' + payload.endDate
+    }
+
+    const loadCache = async () => {
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cache')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '无法读取缓存状态')
+        renderCache(payload)
+      } catch (error) {
+        cacheInfo.textContent = '缓存状态未知'
+        cacheFeedback.textContent = error.message || '无法读取缓存状态'
+        cacheFeedback.dataset.tone = 'error'
+      }
+    }
+
+    clearCache.addEventListener('click', async () => {
+      clearCache.disabled = true
+      cacheFeedback.textContent = '正在清空…'
+      delete cacheFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cache', { method: 'DELETE' })
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '清空缓存失败')
+        renderCache(payload)
+        cacheFeedback.textContent = '已清空，下次查询会重新从 MES 取。'
+        cacheFeedback.dataset.tone = 'ok'
+      } catch (error) {
+        cacheFeedback.textContent = error.message || '清空缓存失败'
+        cacheFeedback.dataset.tone = 'error'
+      } finally {
+        clearCache.disabled = false
+      }
+    })
+
     loadConfig()
     refreshAuth()
     loadCliVersion()
+    loadCache()
   </script>
 </body>
 </html>`

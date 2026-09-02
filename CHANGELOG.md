@@ -25,7 +25,9 @@ All notable changes to this project will be documented in this file.
 
 - Per-machine SQLite cache (`node:sqlite`, created lazily on the first query)
   with a manual **同步最新数据** action, a visible sync time, and a prompt once
-  the data is over a day old.
+  the data is over a day old. A sync widens its window to cover everything
+  already cached, so deleted plans cannot linger anywhere in the cache;
+  **清空缓存** resets that span.
 
 ### Fixed
 

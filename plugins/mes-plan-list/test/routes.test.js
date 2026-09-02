@@ -102,13 +102,13 @@ test('rejects config methods other than GET and PUT', async () => {
 })
 
 test('reports a logged-in MES account', async () => {
-  const { handleAuth } = createHandlers({ readAuth: async () => ({ loggedIn: true, account: '心静自然凉' }) })
+  const { handleAuth } = createHandlers({ readAuth: async () => ({ loggedIn: true, account: '测试账号' }) })
   const response = makeResponse()
 
   await handleAuth(makeRequest(), response)
 
   assert.equal(response.statusCode, 200)
-  assert.deepEqual(JSON.parse(response.body), { ok: true, loggedIn: true, account: '心静自然凉' })
+  assert.deepEqual(JSON.parse(response.body), { ok: true, loggedIn: true, account: '测试账号' })
 })
 
 test('reports a logged-out CLI as a normal answer, not an error', async () => {
@@ -237,7 +237,7 @@ test('hides CLI details when an update fails', async () => {
   assert.match(JSON.parse(response.body).error, /mes 更新失败/)
 })
 
-test('registers the page, query, config, auth, and CLI routes', async () => {
+test('registers the page, query, config, auth, CLI, and cache routes', async () => {
   const { apply } = await import('../src/index.js')
   const routes = []
 
@@ -250,5 +250,6 @@ test('registers the page, query, config, auth, and CLI routes', async () => {
     '/api/plugins/mes-plan-list/auth',
     '/api/plugins/mes-plan-list/cli',
     '/api/plugins/mes-plan-list/cli/update',
+    '/api/plugins/mes-plan-list/cache',
   ])
 })

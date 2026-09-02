@@ -66,8 +66,10 @@ async function resolvePlans({ startDate, endDate, status, refresh }, query, stor
     const syncedAt = store.findCoveringSync(window)
     if (syncedAt !== undefined) return { plans: store.readPlans({ startDate, endDate, status }), syncedAt, fromCache: true }
   }
-  const fresh = await query({ ...window, status: '' })
-  const syncedAt = store.writeWindow(window, fresh)
+  // 同步范围扩展到覆盖所有缓存过的窗口，否则窄窗口同步只清掉自己窗口内的幽灵行。
+  const syncWindow = store.coveringWindow(window)
+  const fresh = await query({ ...syncWindow, status: '' })
+  const syncedAt = store.writeWindow(syncWindow, fresh)
   return { plans: store.readPlans({ startDate, endDate, status }), syncedAt, fromCache: false }
 }
 
@@ -172,6 +174,26 @@ export function createHandlers({
         writeJson(response, 502, { ok: false, error: '无法读取 MES 登录状态，请检查 mes 路径配置' })
       }
     },
+    async handleCache(request, response) {
+      if (request.method === 'GET') {
+        try {
+          writeJson(response, 200, { ok: true, ...store().summary() })
+        } catch {
+          writeJson(response, 500, { ok: false, error: '无法读取缓存状态' })
+        }
+        return
+      }
+      if (request.method !== 'DELETE') {
+        writeJson(response, 405, { ok: false, error: '仅支持 GET 或 DELETE 请求' }, { allow: 'GET, DELETE' })
+        return
+      }
+      try {
+        store().clear()
+        writeJson(response, 200, { ok: true, ...store().summary() })
+      } catch {
+        writeJson(response, 500, { ok: false, error: '清空缓存失败' })
+      }
+    },
     async handleCli(request, response) {
       if (request.method !== 'GET') {
         writeJson(response, 405, { ok: false, error: '仅支持 GET 请求' }, { allow: 'GET' })
@@ -209,11 +231,12 @@ export function createHandlers({
 export const inject = ['webServer']
 
 export function apply(ctx) {
-  const { handlePage, handleQuery, handleConfig, handleAuth, handleCli, handleCliUpdate } = createHandlers()
+  const { handlePage, handleQuery, handleConfig, handleAuth, handleCli, handleCliUpdate, handleCache } = createHandlers()
   ctx.webServer.register({ kind: 'exact', path: '/plugins/mes-plan-list', handler: handlePage })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/query', handler: handleQuery })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/config', handler: handleConfig })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/auth', handler: handleAuth })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/cli', handler: handleCli })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/cli/update', handler: handleCliUpdate })
+  ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/cache', handler: handleCache })
 }

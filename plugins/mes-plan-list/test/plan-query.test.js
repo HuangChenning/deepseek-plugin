@@ -127,6 +127,26 @@ test('refresh forces a resync even when the window is cached', async () => {
   store.close()
 })
 
+// 同步范围必须覆盖已缓存的一切，否则窄窗口同步只清掉自己窗口内的幽灵行。
+test('syncs a window wide enough to cover everything already cached', async () => {
+  const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))
+  const asked = []
+  const { handleQuery } = createHandlers({
+    query: async (input) => {
+      asked.push(`${input.startDate}~${input.endDate}`)
+      return []
+    },
+    store: () => store,
+  })
+
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-01-01', endDate: '2026-12-31' }) }), makeResponse())
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-08-01', endDate: '2026-08-31', refresh: true }) }), makeResponse())
+
+  assert.deepEqual(asked, ['2026-01-01~2026-12-31', '2026-01-01~2026-12-31'],
+    '第二次只想同步 8 月，但范围被扩展到覆盖已缓存的全年')
+  store.close()
+})
+
 // 落盘一律全状态，状态过滤在本地做：带状态的返回不是窗口全集，拿它清理幽灵行会误删。
 test('syncs the whole window regardless of the status filter', async () => {
   const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))

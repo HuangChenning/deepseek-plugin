@@ -121,29 +121,70 @@ test('keeps plans outside the synced window when cleaning up', async () => {
 })
 
 /*
- * 增量同步的固有边界，不是缺陷但必须被知道：一次窄窗口同步只能清理该窗口内的
- * 幽灵行，窗口外在 MES 侧被删掉的计划仍留在本地。清掉它们的唯一办法是同步一个
- * 覆盖它们的窗口。
- *
- * 这不会让用户读到"看起来是新的"陈旧数据：新鲜度取自覆盖查询窗口的那次同步，
- * 窄窗口同步不会刷新宽窗口的时间，所以查宽范围时仍会看到旧时间并被提示更新。
+ * 幽灵行的根源是「同步窗口比缓存过的范围窄」。coveringWindow 把同步范围扩展到
+ * 覆盖所有缓存过的窗口，用户因此不必判断该做增量还是全量——正确性是自动的。
  */
-test('a narrow sync leaves ghost rows outside its window, and does not refresh the wider window time', async () => {
+test('expands a sync window to cover everything already cached', async () => {
+  const store = await tempStore()
+  store.writeWindow({ startDate: '2026-01-01', endDate: '2026-12-31' }, [])
+  store.writeWindow({ startDate: '2025-06-01', endDate: '2025-06-30' }, [])
+
+  const expanded = store.coveringWindow({ startDate: '2026-08-01', endDate: '2026-08-31' })
+
+  assert.deepEqual(expanded, { startDate: '2025-06-01', endDate: '2026-12-31' })
+  store.close()
+})
+
+test('leaves the window untouched when nothing is cached yet', async () => {
+  const store = await tempStore()
+
+  const window = { startDate: '2026-08-01', endDate: '2026-08-31' }
+  assert.deepEqual(store.coveringWindow(window), window, '首次查询不该被扩大')
+  store.close()
+})
+
+test('still widens the window when the request reaches beyond what is cached', async () => {
+  const store = await tempStore()
+  store.writeWindow({ startDate: '2026-06-01', endDate: '2026-06-30' }, [])
+
+  assert.deepEqual(store.coveringWindow({ startDate: '2026-01-01', endDate: '2026-12-31' }),
+    { startDate: '2026-01-01', endDate: '2026-12-31' })
+  store.close()
+})
+
+// 扩展后的同步会连带清掉此前窄窗口同步够不到的幽灵行。
+test('an expanded sync clears ghost rows left outside an earlier narrow sync', async () => {
   const store = await tempStore()
   const year = { startDate: '2026-01-01', endDate: '2026-12-31' }
-  store.writeWindow(year, [plan(1, '2026-03-05', '2026-03-06'), plan(2, '2026-08-05', '2026-08-06')], '2026-08-01T00:00:00.000Z')
+  store.writeWindow(year, [plan(1, '2026-03-05', '2026-03-06'), plan(2, '2026-08-05', '2026-08-06')])
 
-  // 计划 1 在 MES 侧被删除，但用户只同步了 8 月这个窄窗口。
-  const august = { startDate: '2026-08-01', endDate: '2026-08-31' }
-  store.writeWindow(august, [plan(2, '2026-08-05', '2026-08-06')], '2026-09-02T00:00:00.000Z')
+  // 计划 1 在 MES 侧被删除。用户只想同步 8 月，但同步范围被扩展到覆盖全年。
+  const asked = store.coveringWindow({ startDate: '2026-08-01', endDate: '2026-08-31' })
+  store.writeWindow(asked, [plan(2, '2026-08-05', '2026-08-06')])
 
-  assert.deepEqual(store.readPlans(year).map((row) => row.id), [1, 2], '窗口外的幽灵行仍在')
-  assert.equal(store.findCoveringSync(year), '2026-08-01T00:00:00.000Z',
-    '查全年时看到的仍是全年那次同步的时间，因此会被提示数据已陈旧')
+  assert.deepEqual(store.readPlans(year).map((row) => row.id), [2], '3 月的幽灵行也被清掉了')
+  store.close()
+})
 
-  // 同步覆盖它的窗口才会清掉。
-  store.writeWindow(year, [plan(2, '2026-08-05', '2026-08-06')], '2026-09-02T01:00:00.000Z')
-  assert.deepEqual(store.readPlans(year).map((row) => row.id), [2])
+test('clearing the cache resets both the rows and the synced range', async () => {
+  const store = await tempStore()
+  store.writeWindow({ startDate: '2026-01-01', endDate: '2026-12-31' }, [plan(1, '2026-03-05', '2026-03-06')])
+
+  store.clear()
+
+  assert.deepEqual(store.summary(), { count: 0, startDate: '', endDate: '', syncedAt: '' })
+  assert.deepEqual(store.coveringWindow({ startDate: '2026-08-01', endDate: '2026-08-31' }),
+    { startDate: '2026-08-01', endDate: '2026-08-31' }, '清空后同步范围回到只覆盖当前查询')
+  store.close()
+})
+
+test('summarizes the cached span and row count', async () => {
+  const store = await tempStore()
+  store.writeWindow({ startDate: '2026-01-01', endDate: '2026-12-31' },
+    [plan(1, '2026-03-05', '2026-03-06'), plan(2, '2026-08-05', '2026-08-06')], '2026-09-02T00:00:00.000Z')
+
+  assert.deepEqual(store.summary(),
+    { count: 2, startDate: '2026-01-01', endDate: '2026-12-31', syncedAt: '2026-09-02T00:00:00.000Z' })
   store.close()
 })
 

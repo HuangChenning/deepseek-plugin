@@ -80,17 +80,21 @@ guessing at server behaviour. Status filtering is likewise local; syncing always
 fetches **all** statuses, because a status-filtered response is not the full
 window and would make the cleanup below delete live rows.
 
-### Deletions, and the limit of a narrow sync
+### Deletions
 
 MES does not announce deletions, so after syncing window W the store drops rows
 inside W that W's response did not contain — precise, because that response is
 W's complete set.
 
-A narrow sync therefore only cleans ghosts inside its own window; a plan deleted
-outside it stays cached until a window covering it is synced. This does not
-silently show stale data as fresh: freshness comes from the sync that covers the
-queried window, so a narrow sync does not refresh a wider window's timestamp,
-and querying the wider range still reports the older time and prompts a resync.
+A narrow sync would only clean ghosts inside its own window, so **a sync widens
+its window to cover everything already cached**: the union of the requested
+range and every previously synced window. Ghost rows therefore cannot accumulate
+anywhere in the cache, and there is no "incremental vs full" decision to get
+wrong — correctness is automatic, and the cost of a wide sync is only paid once
+the cache actually spans a wide range. **清空缓存** resets that span.
+
+For scale: a year is ~950 plans, 5 CLI calls, ~7s; ten years is ~8000 plans,
+~85s, 13MB.
 
 ## Settings
 

@@ -88,6 +88,49 @@ export class PlanStore {
     return row === undefined ? undefined : row.synced_at
   }
 
+  /**
+   * 把要同步的窗口扩展到覆盖所有已缓存过的范围。
+   *
+   * 幽灵行的根源不是「做了增量」，而是「同步窗口比缓存过的范围窄」——窄窗口同步
+   * 只能清掉它自己窗口内已被 MES 删除的计划。取当前窗口与历史所有已同步窗口的
+   * 并集来同步，正确性上就等价于全量，但只有在真正缓存过大范围时才付出全量的
+   * 代价；用户也不必再判断「这次该增量还是全量」。范围大到不想要了就清空缓存。
+   */
+  coveringWindow({ startDate, endDate }) {
+    const row = this.#open().prepare('SELECT MIN(start_date) AS s, MAX(end_date) AS e FROM windows').get()
+    if (row === undefined || row.s === null || row.s === undefined) return { startDate, endDate }
+    return {
+      startDate: row.s < startDate ? row.s : startDate,
+      endDate: row.e > endDate ? row.e : endDate,
+    }
+  }
+
+  /** 缓存概况：覆盖的日期范围、计划条数、最近一次同步时间。 */
+  summary() {
+    const db = this.#open()
+    const span = db.prepare('SELECT MIN(start_date) AS s, MAX(end_date) AS e, MAX(synced_at) AS at FROM windows').get()
+    return {
+      count: db.prepare('SELECT COUNT(*) AS c FROM plans').get().c,
+      startDate: span?.s == null ? '' : String(span.s).slice(0, 10),
+      endDate: span?.e == null ? '' : String(span.e).slice(0, 10),
+      syncedAt: span?.at == null ? '' : span.at,
+    }
+  }
+
+  /** 清空缓存，把同步范围重置回空——例如不再关心很早以前的数据。 */
+  clear() {
+    const db = this.#open()
+    db.exec('BEGIN')
+    try {
+      db.exec('DELETE FROM plans')
+      db.exec('DELETE FROM windows')
+      db.exec('COMMIT')
+    } catch (error) {
+      db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
   /** 按 MES 的窗口语义从本地取计划；status 为空表示全状态。 */
   readPlans({ startDate, endDate, status = '' }) {
     const from = boundary(startDate)
