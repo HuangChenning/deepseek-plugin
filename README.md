@@ -88,16 +88,6 @@ none.
 
 ## Filters
 
-| Status | | Check type | |
-| --- | --- | --- | --- |
-| `0` | 未开始 | `0` | 巡检 |
-| `1` | 进行中 | `1` | 培训 |
-| `3` | 已逾期未结束 | `2` | 现场人天 |
-| | | `3` | 驻场 |
-| | | `4` | 售前POC |
-| | | `5` | 维保 |
-| | | `6` | 内部事项 |
-
 Finished plans (`2`) are always excluded and have no filter option.
 
 A plan is listed when its dates **overlap** the window, not only when it falls

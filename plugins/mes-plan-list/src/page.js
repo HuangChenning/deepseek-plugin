@@ -2,6 +2,19 @@
  * 插件页面。既能独立访问（跟随系统明暗），也能嵌在 DSH 中央列的 iframe 里，
  * 由 client.js 通过 postMessage 推送 DSH 的明暗主题。
  */
+export function applyFilterSelection(form, pickerName, syncAllChip, runQuery) {
+  syncAllChip(pickerName)
+  if (form.reportValidity()) runQuery(false)
+}
+
+export function paginatePlans(plans, requestedPage, pageSize) {
+  const total = plans.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const page = Math.min(Math.max(1, requestedPage), totalPages)
+  const start = (page - 1) * pageSize
+  return { items: plans.slice(start, start + pageSize), page, totalPages, total }
+}
+
 export function renderPage() {
   return `<!doctype html>
 <html lang="zh-CN">
@@ -129,9 +142,21 @@ export function renderPage() {
     tbody tr:hover td { background: var(--surface-sunken); }
     td.title { font-weight: 500; max-width: 280px; }
     td.company { max-width: 200px; }
+    th:nth-child(4), td.check-type { width: 120px; min-width: 120px; }
+    th:nth-child(5), td.executors { width: 88px; max-width: 88px; overflow-wrap: anywhere; }
     td.id, td.num, td.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
     td.id, td.date { color: var(--muted); }
     td.num { text-align: right; }
+
+    .pagination {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+      margin-top: 12px; color: var(--muted); font-size: 13px;
+    }
+    .pagination-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .pagination label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .pagination select { min-width: 0; padding: 5px 8px; }
+    .pagination .ghost { padding: 5px 12px; }
+    .pagination button:disabled { cursor: not-allowed; }
 
     .badge {
       display: inline-block; white-space: nowrap; border-radius: 999px;
@@ -284,6 +309,8 @@ export function renderPage() {
     const submit = form.querySelector('button')
     const status = document.querySelector('#status')
     const results = document.querySelector('#results')
+    const applyFilterSelection = ${applyFilterSelection}
+    const paginatePlans = ${paginatePlans}
 
     // 面板嵌在 DSH 中央列时跟随外壳主题；独立打开时保持 prefers-color-scheme。
     window.addEventListener('message', (event) => {
@@ -376,8 +403,8 @@ export function renderPage() {
       + '<td class="id">' + escapeHtml(plan.id) + '</td>'
       + '<td class="title">' + escapeHtml(plan.title) + '</td>'
       + '<td class="company">' + escapeHtml(plan.contractName) + '</td>'
-      + '<td>' + escapeHtml(plan.checkTypeDesc) + '</td>'
-      + '<td>' + escapeHtml(executors(plan)) + '</td>'
+      + '<td class="check-type">' + escapeHtml(plan.checkTypeDesc) + '</td>'
+      + '<td class="executors">' + escapeHtml(executors(plan)) + '</td>'
       + '<td class="num">' + escapeHtml(plan.windowHours ?? '—') + '</td>'
       + '<td class="date">' + escapeHtml(day(plan.startDate)) + '</td>'
       + '<td class="date">' + escapeHtml(day(plan.endDate)) + '</td>'
@@ -389,10 +416,17 @@ export function renderPage() {
         results.innerHTML = '<p class="empty">没有符合条件的实施计划。</p>'
         return
       }
+      const paged = paginatePlans(plans, currentPage, pageSize)
+      currentPage = paged.page
       const labels = ['计划ID', '计划标题', '合同名称', '合同类型', '执行人', '报工工时(h)', '计划开始', '计划结束', '进行状态']
       results.innerHTML = '<div class="table-wrap"><table><thead><tr>'
         + labels.map((label) => '<th>' + label + '</th>').join('')
-        + '</tr></thead><tbody>' + plans.map(renderRow).join('') + '</tbody></table></div>'
+        + '</tr></thead><tbody>' + paged.items.map(renderRow).join('') + '</tbody></table></div>'
+        + '<div class="pagination"><span>共 ' + paged.total + ' 条，第 ' + paged.page + ' / ' + paged.totalPages + ' 页</span>'
+        + '<div class="pagination-controls"><label>每页 <select id="page-size" aria-label="每页条数">'
+        + [20, 30, 40, 50, 100].map((size) => '<option value="' + size + '"' + (size === pageSize ? ' selected' : '') + '>' + size + ' 条</option>').join('')
+        + '</select></label><button type="button" class="ghost" data-page="previous"' + (paged.page === 1 ? ' disabled' : '') + '>上一页</button>'
+        + '<button type="button" class="ghost" data-page="next"' + (paged.page === paged.totalPages ? ' disabled' : '') + '>下一页</button></div></div>'
     }
 
     const DAY_MS = 24 * 60 * 60 * 1000
@@ -400,6 +434,23 @@ export function renderPage() {
 
     /** 最近一次查询的结果，供「加载报工工时」就地补上工时后重绘。 */
     let lastPlans = []
+    let currentPage = 1
+    let pageSize = 20
+
+    results.addEventListener('click', (event) => {
+      const direction = event.target.dataset.page
+      if (direction === 'previous') currentPage -= 1
+      else if (direction === 'next') currentPage += 1
+      else return
+      renderPlans(lastPlans)
+    })
+
+    results.addEventListener('change', (event) => {
+      if (event.target.id !== 'page-size') return
+      pageSize = Number(event.target.value)
+      currentPage = 1
+      renderPlans(lastPlans)
+    })
 
     /** 「全部」按钮的选中态：该组一个都没勾时，就是「全部」。 */
     const syncAllChip = (name) => {
@@ -445,6 +496,7 @@ export function renderPage() {
         // 工时随窗口变化，所以由服务端按当前窗口给出；没有报工缓存时为 null，
         // 表格显示「—」，同步一次即可补上。
         lastPlans = payload.plans
+        currentPage = 1
         if (payload.hours !== null && payload.hours !== undefined) {
           for (const plan of lastPlans) plan.windowHours = payload.hours[plan.id] ?? 0
         }
@@ -676,11 +728,13 @@ export function renderPage() {
         for (const input of document.querySelectorAll('[data-picker="' + chip.dataset.clear + '"] input')) {
           input.checked = false
         }
-        syncAllChip(chip.dataset.clear)
+        applyFilterSelection(form, chip.dataset.clear, syncAllChip, runQuery)
       })
     }
     for (const picker of document.querySelectorAll('[data-picker]')) {
-      picker.addEventListener('change', () => { syncAllChip(picker.dataset.picker) })
+      picker.addEventListener('change', () => {
+        applyFilterSelection(form, picker.dataset.picker, syncAllChip, runQuery)
+      })
     }
     syncAllChip('status')
     syncAllChip('checkType')
