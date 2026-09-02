@@ -50,6 +50,27 @@ Open <http://127.0.0.1:3080> and click **实施计划** in the sidebar, or open
 end date, optionally select a status, and submit the form. A query displays a
 plan table, an empty state, or a concise MES error.
 
+## Settings
+
+The page's **设置** panel configures the absolute path to the `mes` binary.
+Leave it empty to use `mes` from PATH. Setting it fixes the case where a DSH
+started from a GUI or launchd cannot resolve `mes`.
+
+The path decides which binary the host executes, so a submitted value is only
+stored after it passes all of: absolute path, no control characters, and a
+`<path> --version` that prints `mes version <semver>`. Checking the path shape
+alone would let any program be configured as `mes`.
+
+Config lives at `~/.dsh/storages/mes-plan-list/config.json`. A corrupt file
+falls back to PATH rather than breaking the plugin.
+
+## Login state
+
+The page checks `mes -o json auth status` on load and shows a banner when the
+CLI is not logged in, naming the `mes auth login` command to run. The plugin
+never handles credentials itself. A logged-out CLI can exit non-zero while
+still printing its JSON, so that is read as "logged out", not as a failure.
+
 ## Two halves
 
 `package.json` declares `dsh.client`, so DSH serves the browser half at

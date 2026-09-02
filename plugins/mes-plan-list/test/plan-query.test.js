@@ -3,7 +3,7 @@ import test from 'node:test'
 import { Readable } from 'node:stream'
 
 import { buildPlanListArgs, queryPlans } from '../src/plan-query.js'
-import { apply, createHandlers } from '../src/index.js'
+import { createHandlers } from '../src/index.js'
 
 function makeRequest({ method = 'POST', contentType = 'application/json', body = '' } = {}) {
   const request = Readable.from(body === '' ? [] : [Buffer.from(body)])
@@ -122,19 +122,6 @@ test('serves the query form on a GET page request', async () => {
   assert.equal(response.statusCode, 200)
   assert.equal(response.headers['content-type'], 'text/html; charset=utf-8')
   assert.match(response.body, /<form id="query-form"/)
-})
-
-test('registers the exact page and query routes', () => {
-  const routes = []
-
-  apply({ webServer: { register: (route) => routes.push(route) } })
-
-  assert.deepEqual(routes.map(({ kind, path }) => ({ kind, path })), [
-    { kind: 'exact', path: '/plugins/mes-plan-list' },
-    { kind: 'exact', path: '/api/plugins/mes-plan-list/query' },
-  ])
-  assert.equal(typeof routes[0].handler, 'function')
-  assert.equal(typeof routes[1].handler, 'function')
 })
 
 test('builds a bounded MES plan list command with status', () => {

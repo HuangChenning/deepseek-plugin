@@ -23,6 +23,7 @@ export function renderPage() {
       --run-bg: #e7eefb; --run-fg: #24528f;
       --idle-bg: #eeecea; --idle-fg: #6b645c;
       --late-bg: #fdeceb; --late-fg: #a32f26;
+      --warn-bg: #fdf3e3; --warn-fg: #8a5a1a;
     }
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
@@ -33,6 +34,7 @@ export function renderPage() {
         --run-bg: #172438; --run-fg: #8fb3e8;
         --idle-bg: #2a2725; --idle-fg: #a09890;
         --late-bg: #3a1d1a; --late-fg: #ec9086;
+        --warn-bg: #35291a; --warn-fg: #e3b273;
       }
     }
     :root[data-theme="dark"] {
@@ -43,6 +45,7 @@ export function renderPage() {
       --run-bg: #172438; --run-fg: #8fb3e8;
       --idle-bg: #2a2725; --idle-fg: #a09890;
       --late-bg: #3a1d1a; --late-fg: #ec9086;
+      --warn-bg: #35291a; --warn-fg: #e3b273;
     }
 
     * { box-sizing: border-box; }
@@ -115,14 +118,61 @@ export function renderPage() {
       background: var(--surface); border: 1px dashed var(--border); border-radius: 12px;
       padding: 44px 20px; text-align: center; color: var(--muted);
     }
+
+    .head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+    .ghost {
+      background: transparent; color: var(--muted); border: 1px solid var(--border);
+      font-weight: 400; padding: 6px 14px;
+    }
+    .ghost:hover { background: var(--surface); color: var(--text); filter: none; }
+
+    .banner {
+      display: none; align-items: baseline; gap: 8px; flex-wrap: wrap;
+      background: var(--warn-bg); color: var(--warn-fg);
+      border-radius: 10px; padding: 11px 14px; margin-bottom: 16px; font-size: 13px;
+    }
+    .banner[data-show] { display: flex; }
+    .banner code {
+      background: var(--surface); color: var(--text); border-radius: 5px;
+      padding: 1px 6px; font-size: 12px;
+    }
+
+    .panel {
+      display: none; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow);
+    }
+    .panel[data-show] { display: block; }
+    .panel h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+    .panel .hint { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+    .panel .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .panel .field { flex: 1 1 380px; }
+    .panel input { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    .panel .feedback { margin: 10px 0 0; font-size: 12px; color: var(--muted); min-height: 16px; }
+    .panel .feedback[data-tone="error"] { color: var(--late-fg); }
+    .panel .feedback[data-tone="ok"] { color: var(--ok-fg); }
   </style>
 </head>
 <body>
   <div class="shell">
-    <header>
-      <h1>MES 实施计划</h1>
-      <p class="lede">通过本机 mes CLI 只读查询。</p>
+    <header class="head-row">
+      <div>
+        <h1>MES 实施计划</h1>
+        <p class="lede">通过本机 mes CLI 只读查询。</p>
+      </div>
+      <button type="button" id="settings-toggle" class="ghost">设置</button>
     </header>
+
+    <p id="auth-banner" class="banner" role="status"></p>
+
+    <section id="settings" class="panel">
+      <h2>mes CLI 路径</h2>
+      <p class="hint">留空则使用 PATH 中的 <code>mes</code>。填绝对路径可解决 DSH 从图形界面启动时找不到 mes 的情况。保存前会执行该路径的 <code>--version</code> 确认它确实是 mes。</p>
+      <div class="row">
+        <label class="field"><span>绝对路径</span><input id="mes-path" type="text" placeholder="/opt/homebrew/bin/mes" spellcheck="false"></label>
+        <button type="button" id="save-config">保存</button>
+      </div>
+      <p id="config-feedback" class="feedback" role="status"></p>
+    </section>
 
     <form id="query-form" class="filters">
       <label class="field"><span>开始日期</span><input name="startDate" type="date" required></label>
@@ -157,6 +207,76 @@ export function renderPage() {
     })
 
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character])
+
+    const banner = document.querySelector('#auth-banner')
+    const settings = document.querySelector('#settings')
+    const mesPath = document.querySelector('#mes-path')
+    const saveConfig = document.querySelector('#save-config')
+    const configFeedback = document.querySelector('#config-feedback')
+
+    document.querySelector('#settings-toggle').addEventListener('click', () => {
+      if (settings.hasAttribute('data-show')) settings.removeAttribute('data-show')
+      else settings.setAttribute('data-show', '')
+    })
+
+    const showBanner = (html) => {
+      banner.innerHTML = html
+      banner.setAttribute('data-show', '')
+    }
+
+    // 登录状态是查询能否成功的前提，页面一打开就查，不等用户先失败一次。
+    const refreshAuth = async () => {
+      banner.removeAttribute('data-show')
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/auth')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) {
+          showBanner(escapeHtml(payload.error || '无法读取 MES 登录状态。'))
+          return
+        }
+        if (!payload.loggedIn) {
+          showBanner('本机 mes CLI 未登录，查询会失败。请在终端执行 <code>mes auth login</code> 后重试。')
+        }
+      } catch {
+        showBanner('无法读取 MES 登录状态。')
+      }
+    }
+
+    const loadConfig = async () => {
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/config')
+        const payload = await response.json()
+        if (response.ok && payload.ok) mesPath.value = payload.mesPath
+      } catch {
+        // 读不到配置不影响查询：留空即表示沿用 PATH。
+      }
+    }
+
+    saveConfig.addEventListener('click', async () => {
+      saveConfig.disabled = true
+      configFeedback.textContent = '正在校验…'
+      delete configFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/config', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mesPath: mesPath.value }),
+        })
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '保存失败')
+        mesPath.value = payload.mesPath
+        configFeedback.textContent = payload.mesPath === ''
+          ? '已保存，将使用 PATH 中的 mes。'
+          : '已保存，检测到 mes ' + payload.version + '。'
+        configFeedback.dataset.tone = 'ok'
+        await refreshAuth()
+      } catch (error) {
+        configFeedback.textContent = error.message || '保存失败'
+        configFeedback.dataset.tone = 'error'
+      } finally {
+        saveConfig.disabled = false
+      }
+    })
     const day = (value) => String(value ?? '').slice(0, 10)
     const executors = (plan) => (plan.executorList ?? []).map((row) => row.executorName).filter(Boolean).join('、')
 
@@ -210,6 +330,9 @@ export function renderPage() {
         submit.disabled = false
       }
     })
+
+    loadConfig()
+    refreshAuth()
   </script>
 </body>
 </html>`

@@ -1,15 +1,4 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
-
-function runMes(args) {
-  return execFileAsync('mes', args, { encoding: 'utf8' })
-    .then(({ stdout }) => stdout)
-    .catch(() => {
-      throw new Error('MES 命令执行失败')
-    })
-}
+import { runMes } from './mes-cli.js'
 
 /** 单次向 MES 请求的条数；结果总量由 queryPlans 翻页取全，不受它限制。 */
 const PAGE_SIZE = 200

@@ -12,6 +12,11 @@ All notable changes to this project will be documented in this file.
   and opens the plugin page over the center column.
 - `pnpm register`, which registers every workspace plugin with a DSH profile
   without `dsh plugin add`'s full-profile pnpm install.
+- Settings panel for the `mes` binary path, stored host-side. A submitted path
+  is verified with `<path> --version` before it is stored, so an arbitrary
+  executable cannot be configured as `mes`.
+- Login-state banner: the page reads `mes auth status` on load and names the
+  command to run when the CLI is not logged in.
 - Workspace CI running the tests and a whitespace check.
 
 ### Fixed

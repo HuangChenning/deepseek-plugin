@@ -30,10 +30,8 @@
 
 ## 必须补充验证
 
-- [ ] 确认 DSH 进程的 PATH 能找到 `mes`。查询用 `execFile('mes', args)`，依赖
-      PATH 解析；本次验证是从终端启动 `dsh --profile web`（PATH 含
-      `/opt/homebrew/bin`）。若从 GUI 或 launchd 启动，可能解析失败并统一报
-      「MES 查询失败」。届时需要考虑可配置的绝对路径。
+- [x] ~~确认 DSH 进程的 PATH 能找到 `mes`~~。已由需求 1 解决：页面设置面板可配
+      置 mes 绝对路径，留空才回落到 PATH。见 [roadmap.md](./roadmap.md)。
 
 ## 工程化增强（尚未实现）
 

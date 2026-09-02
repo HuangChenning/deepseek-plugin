@@ -1,5 +1,7 @@
 import { queryPlans } from './plan-query.js'
 import { renderPage } from './page.js'
+import { readConfig, writeConfig } from './config.js'
+import { readAuthStatus, readMesVersion } from './mes-cli.js'
 
 const MAX_BODY_BYTES = 16 * 1024
 const JSON_CONTENT_TYPE = /^application\/json(?:\s*;|$)/i
@@ -43,7 +45,20 @@ function validateInput(body) {
   return { startDate: body.startDate, endDate: body.endDate, status: body.status ?? '' }
 }
 
-export function createHandlers({ query = queryPlans } = {}) {
+function validateConfigInput(body) {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new RequestError('请求参数无效')
+  if (Object.keys(body).some((key) => key !== 'mesPath')) throw new RequestError('请求参数无效')
+  if (typeof body.mesPath !== 'string') throw new RequestError('mes 路径必须是字符串')
+  return body.mesPath
+}
+
+export function createHandlers({
+  query = queryPlans,
+  loadConfig = readConfig,
+  saveConfig = writeConfig,
+  readVersion = readMesVersion,
+  readAuth = readAuthStatus,
+} = {}) {
   return {
     async handlePage(request, response) {
       if (request.method !== 'GET') {
@@ -76,13 +91,61 @@ export function createHandlers({ query = queryPlans } = {}) {
         writeJson(response, 502, { ok: false, error: 'MES 查询失败，请稍后重试' })
       }
     },
+    async handleConfig(request, response) {
+      if (request.method === 'GET') {
+        writeJson(response, 200, { ok: true, ...(await loadConfig()) })
+        return
+      }
+      if (request.method !== 'PUT') {
+        writeJson(response, 405, { ok: false, error: '仅支持 GET 或 PUT 请求' }, { allow: 'GET, PUT' })
+        return
+      }
+      if (!JSON_CONTENT_TYPE.test(request.headers['content-type'] ?? '')) {
+        writeJson(response, 415, { ok: false, error: '仅支持 JSON 请求' })
+        return
+      }
+      let mesPath
+      try {
+        mesPath = validateConfigInput(await readJson(request))
+      } catch (error) {
+        writeJson(response, 400, { ok: false, error: error instanceof RequestError ? error.message : '请求参数无效' })
+        return
+      }
+      // 保存前先确认这个路径确实是 mes：这个字段决定 Host 执行哪个二进制，
+      // 只检查路径格式等于允许把任意程序配成 mes。留空表示改回用 PATH。
+      let version = ''
+      try {
+        if (mesPath.trim() !== '') version = await readVersion(mesPath.trim())
+      } catch (error) {
+        writeJson(response, 400, { ok: false, error: error.message })
+        return
+      }
+      try {
+        writeJson(response, 200, { ok: true, ...(await saveConfig({ mesPath })), version })
+      } catch (error) {
+        writeJson(response, 400, { ok: false, error: error.message })
+      }
+    },
+    async handleAuth(request, response) {
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { ok: false, error: '仅支持 GET 请求' }, { allow: 'GET' })
+        return
+      }
+      try {
+        writeJson(response, 200, { ok: true, ...(await readAuth()) })
+      } catch {
+        writeJson(response, 502, { ok: false, error: '无法读取 MES 登录状态，请检查 mes 路径配置' })
+      }
+    },
   }
 }
 
 export const inject = ['webServer']
 
 export function apply(ctx) {
-  const { handlePage, handleQuery } = createHandlers()
+  const { handlePage, handleQuery, handleConfig, handleAuth } = createHandlers()
   ctx.webServer.register({ kind: 'exact', path: '/plugins/mes-plan-list', handler: handlePage })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/query', handler: handleQuery })
+  ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/config', handler: handleConfig })
+  ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/auth', handler: handleAuth })
 }
