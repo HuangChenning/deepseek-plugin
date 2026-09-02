@@ -115,6 +115,8 @@ test('refresh forces a resync even when the window is cached', async () => {
       calls += 1
       return [{ id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 2 }]
     },
+    // 同步会连报工一起拉，不注入就会真的去调用 mes CLI。
+    hours: async () => [],
     store: () => store,
   })
 
@@ -136,6 +138,7 @@ test('syncs a window wide enough to cover everything already cached', async () =
       asked.push(`${input.startDate}~${input.endDate}`)
       return []
     },
+    hours: async () => [],
     store: () => store,
   })
 
