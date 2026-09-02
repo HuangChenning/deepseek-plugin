@@ -39,8 +39,8 @@ published to npm or the DSH plugin market.
 
 ### Fixed
 
-- Plan counts were inflated: MES repeats a few records across page boundaries
-  (5 duplicate ids in a 958-row year), so results are now de-duplicated by id.
+- Plan counts were inflated: MES repeats a few records across page boundaries,
+  so results are now de-duplicated by id.
 - Plugin was never loaded by DSH: `package.json` declared no `dsh.bundle.patch`,
   so `dsh plugin add` installed it as a dependency without registering it in the
   profile bundle list, and both routes returned 404.
