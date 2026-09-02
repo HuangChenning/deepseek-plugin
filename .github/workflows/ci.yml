@@ -11,10 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+      # No `cache: pnpm`: that step requires a lockfile, and no plugin has a
+      # runtime dependency yet, so there is nothing to lock or cache.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
       # No lockfile yet: no plugin has a runtime dependency. Switch to
       # --frozen-lockfile once one does and the lockfile is committed.
       - run: pnpm install
