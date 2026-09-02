@@ -5,8 +5,8 @@
 </p>
 
 `deepseek-plugin` is a workspace for independently packaged DSH Web plugins.
-Its first plugin, `mes-plan-list`, lets a developer view MES implementation
-plans locally by date range and status.
+Its first plugin, `mes-plan-list`, shows MES implementation plans by date range
+and status, entirely through the `mes` CLI already installed on your machine.
 
 ## First plugin: `mes-plan-list`
 
@@ -19,17 +19,21 @@ MES CLI.
 
 ## Local setup
 
-Run these commands from the repository root.
+### Prerequisites
 
-First, ensure the local MES CLI is authenticated:
+- **Node 24 or newer.** The plugin's cache uses the built-in `node:sqlite`
+  module, which older releases do not have. Development and CI both run 24.
+- **pnpm**, for `pnpm register` and the tests.
+- **DSH** with a `web` profile — run `dsh --profile web` once if you have never
+  started it, so the profile exists.
+- **The `mes` CLI**, authenticated. Check with `mes auth status`; the plugin
+  shows a banner and refuses to return data when it is not logged in.
+
+### Install
 
 ```sh
-mes auth status
-```
-
-Register the plugin with DSH's Web profile once:
-
-```sh
+git clone https://github.com/HuangChenning/deepseek-plugin.git
+cd deepseek-plugin
 pnpm register
 ```
 
@@ -49,6 +53,26 @@ dsh --profile web --no-open
 Open <http://127.0.0.1:3080> and click **实施计划** in the sidebar. Submitting
 the form uses your local MES CLI; this repository does not include or claim a
 real MES plan query result.
+
+### Updating
+
+Use **设置 → 插件版本 → 检查更新** on the plugin page, which runs
+`git pull --ff-only` in this clone. Equivalently, from a terminal:
+
+```sh
+git pull --ff-only
+```
+
+Either way, **restart DSH** afterwards so it loads the new code. The plugin is
+not published to npm or the DSH plugin market; this repository is the only
+source.
+
+### Local data
+
+Query results are cached in a per-machine SQLite database at
+`~/.dsh/storages/mes-plan-list/plans.db`, created on your first query. It never
+leaves your machine and is not part of this repository. The plugin's settings
+panel shows what it covers and can clear it.
 
 ## Status filter
 
@@ -86,6 +110,7 @@ MES plans. The host validates the three allowed fields and calls the local
 `mes` binary with fixed process arguments—never through a shell—so browser
 input cannot supply another CLI flag.
 
-See [CHANGELOG.md](./CHANGELOG.md) for unreleased changes, and
+See [CHANGELOG.md](./CHANGELOG.md) for the release history, and
 [`plugins/mes-plan-list/README.md`](./plugins/mes-plan-list/README.md) for the
-plugin-specific workflow.
+plugin-specific workflow — settings, login state, CLI updates, and how the
+cache decides what to re-fetch.
