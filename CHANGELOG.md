@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-02
+
+### Added
+
+- Client-side pagination for query results. Pages default to 20 rows, with
+  20 / 30 / 40 / 50 / 100-row options; changing the page never re-queries MES.
+
+### Changed
+
+- Status and check-type selections now refresh results immediately, including
+  each group's **全部** action. A separate click on **查询** is no longer needed.
+- The executor column is narrower and wraps long name lists, while the contract
+  type column has more room.
+- Removed the internal numeric status/type mapping table from the root README.
+
+### Notes
+
+- Restart DSH after updating so the running process loads the new page code.
+  The cache schema is unchanged and no data rebuild is needed.
+
 ## [0.3.0] - 2026-09-02
 
 **Queries returned far fewer plans than they should have.** A window that ought
@@ -123,3 +143,4 @@ published to npm or the DSH plugin market.
 [0.1.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.1.0
 [0.2.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.2.0
 [0.3.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.3.0
+[0.4.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.4.0
