@@ -525,9 +525,12 @@ export function renderPage() {
     const checkPlugin = document.querySelector('#check-plugin')
     const updatePlugin = document.querySelector('#update-plugin')
 
+    // 显示发布版本号；本地领先于该版本时把领先的提交数一并标出，避免让人以为
+    // 自己正好停在那个发布版本上。
     const showPluginVersion = (payload) => {
-      pluginVersion.textContent = payload.branch + ' @ ' + payload.commit
-        + (payload.at ? '（' + payload.at.slice(0, 10) + '）' : '')
+      const base = payload.version || payload.commit
+      const ahead = payload.ahead > 0 ? ' +' + payload.ahead : ''
+      pluginVersion.textContent = base + ahead + ' · ' + payload.branch
     }
 
     // 打开页面只读本地 git 信息，不联网。
@@ -556,7 +559,7 @@ export function renderPage() {
         updatePlugin.hidden = payload.upToDate
         pluginFeedback.textContent = payload.upToDate
           ? '已是最新版本。'
-          : '有新版本（远程 ' + payload.remoteCommit + '），可以更新。'
+          : '检测到新版本，可以更新。'
         pluginFeedback.dataset.tone = payload.upToDate ? 'ok' : 'error'
       } catch (error) {
         pluginFeedback.textContent = error.message || '检查更新失败'
@@ -578,7 +581,7 @@ export function renderPage() {
         showPluginVersion(payload)
         updatePlugin.hidden = true
         pluginFeedback.textContent = payload.changed
-          ? '已更新到 ' + payload.commit + '，请重启 DSH 使新版本生效。'
+          ? '已更新到 ' + (payload.version || payload.commit) + '，请重启 DSH 使新版本生效。'
           : '已是最新版本，无需更新。'
         pluginFeedback.dataset.tone = 'ok'
       } catch (error) {
