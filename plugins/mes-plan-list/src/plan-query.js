@@ -17,9 +17,9 @@ export function buildPlanListArgs({ startDate, endDate, status = '', page = 1 })
 /**
  * 取回该条件下的全部实施计划：MES 按页返回，这里翻页直到取完。
  *
- * 按 id 去重：MES 的分页会在页边界上重复返回少量记录（实测全年 958 行里有 5 个
- * 重复 id，实际只有 953 个计划）。不去重的话，条数和表格行都会偏多。终止判断用
- * 的是**原始取回条数**而不是去重后的条数，否则去重会让它永远够不到 total。
+ * 按 id 去重：MES 的分页会在页边界上重复返回少量记录（已实测），不去重的话条数
+ * 和表格行都会偏多。终止判断用的是**原始取回条数**而不是去重后的条数，否则去重
+ * 会让它永远够不到 total。
  */
 export async function queryPlans(input, run = runMes) {
   const byId = new Map()

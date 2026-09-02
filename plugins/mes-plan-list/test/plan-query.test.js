@@ -272,8 +272,8 @@ test('pages through MES so a result larger than one page is returned whole', asy
   assert.deepEqual(plans.at(-1), { id: 450 })
 })
 
-// MES 的分页会在页边界上重复返回少量记录（实测全年 958 行里有 5 个重复 id）。
-// 不去重的话条数和表格行都会偏多；终止判断必须用原始条数，否则永远够不到 total。
+// MES 的分页会在页边界上重复返回少量记录（已实测）。不去重的话条数和表格行都会
+// 偏多；终止判断必须用原始条数，否则永远够不到 total。
 test('de-duplicates plans that MES returns on more than one page', async () => {
   const plans = await queryPlans({ startDate: '2026-01-01', endDate: '2026-12-31' }, async (args) => {
     const page = Number(args[args.indexOf('--page') + 1])

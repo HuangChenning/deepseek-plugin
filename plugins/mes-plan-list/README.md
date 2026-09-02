@@ -93,9 +93,6 @@ anywhere in the cache, and there is no "incremental vs full" decision to get
 wrong — correctness is automatic, and the cost of a wide sync is only paid once
 the cache actually spans a wide range. **清空缓存** resets that span.
 
-For scale: a year is ~950 plans, 5 CLI calls, ~7s; ten years is ~8000 plans,
-~85s, 13MB.
-
 ## Updating the plugin
 
 The settings panel shows the checked-out branch and commit, checks the remote
@@ -177,4 +174,4 @@ query endpoint. The client bundle self-registers through
 Leaving status empty queries all statuses. Queries are limited to the supplied
 date range and return every matching plan: MES answers in pages, so the host
 pages through them until the result is complete. A wide range therefore costs
-several CLI calls — a full year (958 plans) takes about 5 calls and 7 seconds.
+several CLI calls, so it takes proportionally longer.
