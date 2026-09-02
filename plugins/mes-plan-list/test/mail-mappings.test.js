@@ -53,6 +53,23 @@ test('resolves a name to every MES account that person has', () => {
   assert.deepEqual(resolved.errors, [])
 })
 
+test('does not treat one Excel name expanded to historical accounts as duplicate rows', () => {
+  const resolved = resolveMappingRows(
+    { rows: [{ executorName: '杨波', email: 'yb@example.invalid' }], errors: [] },
+    new Map([['杨波', ['372227', '7686']]]),
+  )
+
+  const preview = previewMappingImport([], resolved)
+
+  // 一行 Excel 记录可对应多个 MES 历史账号；它们共用同一邮箱是正常导入结果。
+  assert.equal(preview.canCommit, true)
+  assert.deepEqual(preview.errors, [])
+  assert.deepEqual(preview.added, [
+    { executorId: '372227', executorName: '杨波', email: 'yb@example.invalid' },
+    { executorId: '7686', executorName: '杨波', email: 'yb@example.invalid' },
+  ])
+})
+
 test('a name that appears in no plan is an error rather than a silent drop', () => {
   const index = buildExecutorIndex([{ executorList: [{ executorId: 900, executorName: '张三' }] }])
   const resolved = resolveMappingRows({ rows: [{ executorName: '查无此人', email: 'x@example.invalid' }], errors: [] }, index)

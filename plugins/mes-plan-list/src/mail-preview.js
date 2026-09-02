@@ -5,6 +5,7 @@ import { queryPlanById } from './plan-query.js'
 const PREVIEW_TTL_MS = 10 * 60 * 1000
 const TEMPLATE_VARIABLES = new Set(['executorName', 'planCount', 'planList'])
 const TEMPLATE_VARIABLE_PATTERN = /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g
+const CHECK_TYPE_NAMES = ['巡检', '培训', '现场人天', '驻场', '售前 POC', '维保', '内部事项']
 
 function deepFreeze(value) {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -33,8 +34,9 @@ function renderTemplate(template, variables) {
 
 function planLine(plan) {
   const customer = plan.companyName ?? plan.customer ?? ''
-  const type = plan.checkTypeName ?? plan.typeName ?? plan.checkType ?? ''
-  return `计划 ID：${plan.id}；客户：${customer}；标题：${plan.title ?? ''}；类型：${type}；计划结束时间：${plan.endDate ?? ''}`
+  const namedType = String(plan.checkTypeName ?? plan.typeName ?? '').trim()
+  const type = namedType === '' ? (CHECK_TYPE_NAMES[Number(plan.checkType)] ?? plan.checkType ?? '') : namedType
+  return `计划 ID：${plan.id}；客户：${customer}；标题：${plan.title ?? ''}；类型：${type}；计划结束时间：${String(plan.endDate ?? '').slice(0, 10)}`
 }
 
 function selectedPlans(planIds, plans) {

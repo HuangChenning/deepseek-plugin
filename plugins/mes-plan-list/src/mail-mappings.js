@@ -17,7 +17,7 @@ function mappingError(rowNumber, code, field, message) {
   return { rowNumber, code, field, message }
 }
 
-function validateRows(rows, rowNumbers = []) {
+function validateRows(rows, rowNumbers = [], checkDuplicateNames = true) {
   const normalized = []
   const errors = []
   const ids = new Map()
@@ -44,10 +44,12 @@ function validateRows(rows, rowNumbers = []) {
     }
   }
 
-  for (const occurrences of ids.values()) {
-    if (occurrences.length < 2) continue
-    for (const occurrence of occurrences) {
-      errors.push(mappingError(occurrence.rowNumber, 'duplicate-name', 'executorName', '同一个执行人姓名出现多行'))
+  if (checkDuplicateNames) {
+    for (const occurrences of ids.values()) {
+      if (occurrences.length < 2) continue
+      for (const occurrence of occurrences) {
+        errors.push(mappingError(occurrence.rowNumber, 'duplicate-name', 'executorName', '同一个执行人姓名出现多行'))
+      }
     }
   }
 
@@ -121,9 +123,9 @@ export async function parseMappingWorkbook(buffer) {
 
 /** Compare incoming rows with current rows, retaining errors so callers can avoid all writes. */
 export function previewMappingImport(current, incoming) {
-  const currentRows = validateRows(Array.isArray(current) ? current : []).rows
+  const currentRows = validateRows(Array.isArray(current) ? current : [], [], false).rows
   const incomingResult = Array.isArray(incoming) ? { rows: incoming, errors: [] } : (incoming ?? { rows: [], errors: [] })
-  const checkedIncoming = validateRows(incomingResult.rows, incomingResult.rows?.map((unused, index) => index + 2))
+  const checkedIncoming = validateRows(incomingResult.rows, incomingResult.rows?.map((unused, index) => index + 2), false)
   const errors = [...(Array.isArray(incomingResult.errors) ? incomingResult.errors : []), ...checkedIncoming.errors]
   const currentById = new Map(currentRows.map((row) => [row.executorId, row]))
   const added = []

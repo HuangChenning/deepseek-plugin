@@ -108,19 +108,21 @@ async function resolvePlans({ startDate, endDate, statuses, checkTypes, refresh 
   const window = { startDate, endDate }
   const filter = { startDate, endDate, statuses, checkTypes }
   const cached = store.lastSync()
+  const cachedHours = store.findCoveringHours(window)
 
   // 从未同步过的机器上，第一次查询顺带把全量取回来，不打断用户。
   if (refresh || cached === undefined) {
     store.replaceAllPlans(await query(FULL_RANGE))
-    // 报工按查询窗口取：它比计划多一个数量级，全量会是几十分钟。
-    if (refresh) store.writeHours(window, await hours(window))
   }
+  // 报工按查询窗口取：它比计划多一个数量级，全量会是几十分钟。已有覆盖缓存
+  // 时不重复请求；首次查询某个窗口则补齐，避免表格长期显示「—」。
+  if (refresh || cachedHours === undefined) store.writeHours(window, await hours(window))
 
   return {
     plans: store.readPlans(filter),
     syncedAt: store.lastSync(),
     fromCache: !refresh && cached !== undefined,
-    hours: store.findCoveringHours(window) === undefined ? null : store.readHours(window),
+    hours: store.readHours(window),
   }
 }
 

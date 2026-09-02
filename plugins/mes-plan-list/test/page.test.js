@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyFilterSelection, paginatePlans } from '../src/page.js'
+import { applyFilterSelection, formatImportError, paginatePlans } from '../src/page.js'
 
 test('filter selection refreshes valid queries after updating the picker state', () => {
   const events = []
@@ -115,6 +115,17 @@ test('an import with row errors offers no commit', () => {
   assert.deepEqual(summary, { added: 1, updated: 0, unchanged: 0, errors: 1, canCommit: false })
 })
 
+test('formats import errors with their server row number only when one exists', () => {
+  assert.equal(
+    formatImportError({ rowNumber: 7, message: '同一个执行人姓名出现多行' }),
+    '第 7 行：同一个执行人姓名出现多行',
+  )
+  assert.equal(
+    formatImportError({ rowNumber: 0, message: '计划数据中找不到执行人「王五」' }),
+    '计划数据中找不到执行人「王五」',
+  )
+})
+
 test('an import that changes nothing offers no commit either', () => {
   const summary = importSummary({ added: [], updated: [], unchanged: [{}, {}], errors: [], canCommit: true })
 
@@ -226,6 +237,31 @@ test('the preview panel is toggled with data-show rather than the hidden attribu
   assert.match(mailSection, /mailPanel\.removeAttribute\('data-show'\)/)
 })
 
+test('the preview sits directly below the action bar instead of after all plan rows', () => {
+  const html = renderPage()
+  const actionBar = html.indexOf('id="mail-actionbar"')
+  const preview = html.indexOf('id="mail-preview"')
+  const results = html.indexOf('id="results"')
+
+  assert.ok(actionBar < preview, '预览必须位于操作栏之后')
+  assert.ok(preview < results, '预览不能放在计划结果表之后')
+})
+
+test('the confirmation checkbox stays compact beside its label', () => {
+  const css = renderPage().split('<style>')[1].split('</style>')[0]
+
+  assert.match(css, /\.panel \.confirm input \{[^}]*min-width:\s*0/)
+  assert.match(css, /\.panel \.confirm input \{[^}]*width:\s*16px/)
+  assert.match(css, /\.panel \.confirm \{[^}]*font-size:\s*12px/)
+})
+
+test('the generated mail preview uses compact 12px text', () => {
+  const css = renderPage().split('<style>')[1].split('</style>')[0]
+
+  assert.match(css, /#mail-preview-groups \{[^}]*font-size:\s*12px/)
+  assert.match(css, /#mail-preview-groups pre \{[^}]*font:\s*inherit/)
+})
+
 test('the row checkboxes neutralize the global input sizing rule', () => {
   const css = renderPage().split('<style>')[1].split('</style>')[0]
 
@@ -234,6 +270,30 @@ test('the row checkboxes neutralize the global input sizing rule', () => {
   assert.match(css, /input\s*,\s*select\s*\{[^}]*min-width:\s*150px/, '全局规则已变，本测试的前提需要复核')
   assert.match(css, /\.pick input \{[^}]*min-width:\s*0/)
   assert.match(css, /\.pick input \{[^}]*width:\s*16px/)
+})
+
+test('the plan table uses a single width budget inside a wider page shell', () => {
+  const css = renderPage().split('<style>')[1].split('</style>')[0]
+
+  assert.match(css, /\.shell \{[^}]*max-width:\s*1440px/)
+  assert.match(css, /table \{[^}]*min-width:\s*1270px/)
+  assert.match(css, /table \{[^}]*table-layout:\s*fixed/)
+})
+
+test('each plan column stays within the shared layout budget', () => {
+  const css = renderPage().split('<style>')[1].split('</style>')[0]
+
+  assert.match(css, /th\.pick, td\.pick \{[^}]*width:\s*44px/)
+  assert.match(css, /th:nth-child\(2\), td\.id \{[^}]*width:\s*80px/)
+  assert.match(css, /th:nth-child\(3\), td\.title \{[^}]*width:\s*270px/)
+  assert.match(css, /th:nth-child\(4\), td\.company \{[^}]*width:\s*300px/)
+  assert.match(css, /th:nth-child\(5\), td\.check-type \{[^}]*width:\s*85px/)
+  assert.match(css, /th:nth-child\(6\), td\.executors \{[^}]*width:\s*82px/)
+  assert.match(css, /th:nth-child\(7\), td\.num \{[^}]*width:\s*78px/)
+  assert.match(css, /th:nth-child\(8\), th:nth-child\(9\), td\.date \{[^}]*width:\s*110px/)
+  assert.match(css, /th:nth-child\(10\), td:last-child \{[^}]*width:\s*112px/)
+  assert.match(css, /td\.title, td\.company \{[^}]*overflow-wrap:\s*anywhere/)
+  assert.match(css, /td\.title, td\.company \{[^}]*font-weight:\s*500/)
 })
 
 test('a non-selectable row shows a disabled checkbox rather than an empty cell', () => {

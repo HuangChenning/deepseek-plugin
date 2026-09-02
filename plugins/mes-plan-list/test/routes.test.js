@@ -349,17 +349,18 @@ test('registers the page, query, config, auth, CLI, cache, and mail routes', asy
 })
 
 /*
- * 报工比计划多一个数量级（全年 3.4 万条、约 6 分钟），所以普通查询绝不能去取它：
- * 只有同步（refresh）才拉报工，平时只读已有的报工缓存。
+ * 报工比计划多一个数量级（全年 3.4 万条、约 6 分钟），所以已有覆盖缓存时普通
+ * 查询绝不能重复取它；仅当前窗口首次查询或用户主动同步时拉取。
  */
 function hoursStore({ cached, onWrite = () => {} }) {
+  let covering = cached
   return () => ({
     lastSync: () => '2026-09-02T00:00:00.000Z',
     readPlans: () => [{ id: 18051 }],
     replaceAllPlans: () => '2026-09-02T00:00:00.000Z',
-    findCoveringHours: () => cached,
+    findCoveringHours: () => covering,
     readHours: () => ({ 18051: 16 }),
-    writeHours: (window, records) => { onWrite(records) },
+    writeHours: (window, records) => { covering = '2026-09-02T00:00:00.000Z'; onWrite(records) },
   })
 }
 
@@ -377,7 +378,7 @@ test('a plain query never fetches work hours', async () => {
   assert.deepEqual(JSON.parse(response.body).hours, { 18051: 16 }, '已缓存的工时应随查询返回')
 })
 
-test('reports no hours rather than fetching them when none are cached', async () => {
+test('a plain query fills a missing work-hour cache for its date range', async () => {
   let fetched = 0
   const { handleQuery } = createHandlers({
     hours: async () => { fetched += 1; return [] },
@@ -387,8 +388,8 @@ test('reports no hours rather than fetching them when none are cached', async ()
 
   await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-08-01', endDate: '2026-08-31' }) }), response)
 
-  assert.equal(fetched, 0)
-  assert.equal(JSON.parse(response.body).hours, null, '没有报工缓存时给出 null，页面显示「—」')
+  assert.equal(fetched, 1, '当前窗口没有工时缓存时应自动补齐')
+  assert.deepEqual(JSON.parse(response.body).hours, { 18051: 16 }, '补齐后应立即返回工时，不再显示「—」')
 })
 
 test('a sync fetches and stores work hours alongside the plans', async () => {

@@ -47,7 +47,7 @@ test('builds one deterministic preview group per executor for overdue plans', ()
         executorName: '张三',
         maskedEmail: 'z***@example.invalid',
         subject: '张三：2 个逾期计划',
-        body: '执行人：张三\n数量：2\n计划 ID：1；客户：客户 1；标题：计划 1；类型：现场交付；计划结束时间：2026-09-01 18:00:00\n计划 ID：2；客户：客户 2；标题：计划 2；类型：现场交付；计划结束时间：2026-09-02 18:00:00',
+        body: '执行人：张三\n数量：2\n计划 ID：1；客户：客户 1；标题：计划 1；类型：现场交付；计划结束时间：2026-09-01\n计划 ID：2；客户：客户 2；标题：计划 2；类型：现场交付；计划结束时间：2026-09-02',
         planIds: [1, 2],
       },
       {
@@ -55,7 +55,7 @@ test('builds one deterministic preview group per executor for overdue plans', ()
         executorName: '李四',
         maskedEmail: 'l***@example.invalid',
         subject: '李四：1 个逾期计划',
-        body: '执行人：李四\n数量：1\n计划 ID：2；客户：客户 2；标题：计划 2；类型：现场交付；计划结束时间：2026-09-02 18:00:00',
+        body: '执行人：李四\n数量：1\n计划 ID：2；客户：客户 2；标题：计划 2；类型：现场交付；计划结束时间：2026-09-02',
         planIds: [2],
       },
     ],
@@ -221,8 +221,28 @@ test('accepts only the three documented template variables', () => {
     settings: { subjectTemplate: '{{planList}}', bodyTemplate: '{{executorName}}/{{planCount}}/{{planList}}' },
   })
 
-  assert.equal(preview.groups[0].subject, '计划 ID：1；客户：客户 1；标题：计划 1；类型：现场交付；计划结束时间：2026-09-01 18:00:00')
-  assert.match(preview.groups[0].body, /^张三\/1\/计划 ID：1；客户：客户 1；标题：计划 1；类型：现场交付；计划结束时间：2026-09-01 18:00:00$/)
+  assert.equal(preview.groups[0].subject, '计划 ID：1；客户：客户 1；标题：计划 1；类型：现场交付；计划结束时间：2026-09-01')
+  assert.match(preview.groups[0].body, /^张三\/1\/计划 ID：1；客户：客户 1；标题：计划 1；类型：现场交付；计划结束时间：2026-09-01$/)
+})
+
+test('renders a numeric check type in Chinese and omits the end time from planList', () => {
+  const overdue = plan(16705, [{ executorId: '1001', executorName: '张三' }])
+  delete overdue.checkTypeName
+  overdue.checkType = 3
+  overdue.endDate = '2026-07-12 00:00:00'
+
+  const preview = buildMailPreview({
+    profileKey: 'profile-a',
+    planIds: [16705],
+    plans: [overdue],
+    mappings,
+    settings: { subjectTemplate: '提醒', bodyTemplate: '{{planList}}' },
+  })
+
+  assert.equal(
+    preview.groups[0].body,
+    '计划 ID：16705；客户：客户 16705；标题：计划 16705；类型：驻场；计划结束时间：2026-07-12',
+  )
 })
 
 test('consumes a profile-bound preview token exactly once before expiry', () => {

@@ -70,6 +70,7 @@ test('returns plans only for a JSON POST query', async () => {
   const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))
   const { handleQuery } = createHandlers({
     query: async () => [{ id: 18366, title: '验证计划', startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 3 }],
+    hours: async () => [],
     store: () => store,
   })
   const response = makeResponse()
@@ -94,6 +95,7 @@ test('serves a repeat query from the local cache without touching MES', async ()
       calls += 1
       return [{ id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 1 }]
     },
+    hours: async () => [],
     store: () => store,
   })
   const body = JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30' })
@@ -162,6 +164,7 @@ test('syncs the whole window regardless of the status filter', async () => {
         { id: 2, startDate: '2026-09-12 08:00:00', endDate: '2026-09-13 18:00:00', status: 3 },
       ]
     },
+    hours: async () => [],
     store: () => store,
   })
   const response = makeResponse()

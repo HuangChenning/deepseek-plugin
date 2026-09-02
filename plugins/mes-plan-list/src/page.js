@@ -70,6 +70,13 @@ export function importSummary(preview) {
   }
 }
 
+export function formatImportError(error) {
+  const message = String(error?.message ?? '')
+  return Number.isInteger(error?.rowNumber) && error.rowNumber > 0
+    ? `第 ${error.rowNumber} 行：${message}`
+    : message
+}
+
 export function sendSummary(result) {
   return {
     text: '共 ' + result.totalMessages + ' 封，成功 ' + result.succeeded + ' 封，失败 ' + result.failed + ' 封。',
@@ -131,7 +138,7 @@ export function renderPage() {
       color: var(--text);
       font: 14px/1.5 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
     }
-    .shell { max-width: 1180px; margin: 0 auto; padding: 28px 24px 48px; }
+    .shell { max-width: 1440px; margin: 0 auto; padding: 28px 24px 48px; }
 
     header { margin-bottom: 20px; }
     h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; letter-spacing: .01em; }
@@ -194,7 +201,7 @@ export function renderPage() {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 12px; box-shadow: var(--shadow); overflow-x: auto;
     }
-    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    table { border-collapse: collapse; width: 100%; min-width: 1270px; table-layout: fixed; font-size: 13px; }
     th, td { padding: 10px 14px; text-align: left; vertical-align: top; }
     th {
       background: var(--surface-sunken); color: var(--muted);
@@ -203,14 +210,21 @@ export function renderPage() {
     }
     tbody tr + tr td { border-top: 1px solid var(--border); }
     tbody tr:hover td { background: var(--surface-sunken); }
-    td.title { font-weight: 500; max-width: 280px; }
-    td.company { max-width: 200px; }
-    th:nth-child(4), td.check-type { width: 120px; min-width: 120px; }
-    th:nth-child(5), td.executors { width: 88px; max-width: 88px; overflow-wrap: anywhere; }
+    /* 十列合计 1270px：所有宽度在这里统一预算，避免单列扩张挤出右侧内容。 */
+    th:nth-child(2), td.id { width: 80px; }
+    th:nth-child(3), td.title { width: 270px; }
+    th:nth-child(4), td.company { width: 300px; }
+    th:nth-child(5), td.check-type { width: 85px; }
+    th:nth-child(6), td.executors { width: 82px; overflow-wrap: anywhere; }
+    th:nth-child(7), td.num { width: 78px; }
+    th:nth-child(7) { white-space: normal; }
+    th:nth-child(8), th:nth-child(9), td.date { width: 110px; }
+    th:nth-child(10), td:last-child { width: 112px; }
+    td.title, td.company { font-family: inherit; font-weight: 500; overflow-wrap: anywhere; }
     td.id, td.num, td.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
     /* 全局的 input{min-width:150px;padding:7px 10px} 会把复选框拉成一条 150px 的扁条，
        在表格里完全认不出是可勾选的控件，所以这里必须逐项复位。 */
-    th.pick, td.pick { width: 36px; padding-left: 14px; padding-right: 0; }
+    th.pick, td.pick { width: 44px; padding-left: 14px; padding-right: 0; }
     .pick input { min-width: 0; width: 16px; height: 16px; padding: 0; margin: 0; border-radius: 4px; accent-color: var(--accent); cursor: pointer; }
     .pick input:disabled { opacity: 0.3; cursor: not-allowed; }
     .mail-actionbar .feedback { margin: 0; font-size: 12px; color: var(--muted); }
@@ -269,6 +283,10 @@ export function renderPage() {
     .panel .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
     .panel .field { flex: 1 1 380px; }
     .panel input { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    .panel .confirm { display: inline-flex; align-items: center; gap: 8px; margin: 16px 0 12px; cursor: pointer; white-space: nowrap; font-size: 12px; }
+    .panel .confirm input { min-width: 0; width: 16px; height: 16px; padding: 0; margin: 0; accent-color: var(--accent); }
+    #mail-preview-groups { font-size: 12px; }
+    #mail-preview-groups pre { font: inherit; white-space: pre-wrap; }
     .panel .feedback { margin: 10px 0 0; font-size: 12px; color: var(--muted); min-height: 16px; }
     .panel .feedback[data-tone="error"] { color: var(--late-fg); }
     .panel .feedback[data-tone="ok"] { color: var(--ok-fg); }
@@ -422,7 +440,6 @@ export function renderPage() {
       <button type="button" id="mail-preview-button">生成邮件预览</button>
       <span id="mail-feedback" class="feedback" role="status"></span>
     </div>
-    <div id="results"></div>
     <section id="mail-preview" class="panel">
       <h2>邮件预览</h2>
       <div id="mail-preview-groups"></div>
@@ -434,6 +451,7 @@ export function renderPage() {
       </div>
       <p id="mail-result" class="feedback" role="status"></p>
     </section>
+    <div id="results"></div>
   </div>
 
   <script>
@@ -450,6 +468,7 @@ export function renderPage() {
     const reconcileSelection = ${reconcileSelection}
     const canSend = ${canSend}
     const importSummary = ${importSummary}
+    const formatImportError = ${formatImportError}
     const sendSummary = ${sendSummary}
 
     /** 跨页选择的唯一真相，活在表格渲染之外，因此翻页不会丢。 */
@@ -608,7 +627,7 @@ export function renderPage() {
     const DAY_MS = 24 * 60 * 60 * 1000
     const sync = document.querySelector('#sync')
 
-    /** 最近一次查询的结果，供「加载报工工时」就地补上工时后重绘。 */
+    /** 最近一次查询的结果，供分页和选择状态重绘。 */
     let lastPlans = []
     let currentPage = 1
     let pageSize = 20
@@ -669,8 +688,8 @@ export function renderPage() {
         })
         const payload = await response.json()
         if (!response.ok || !payload.ok) throw new Error(payload.error || '查询失败，请稍后重试')
-        // 工时随窗口变化，所以由服务端按当前窗口给出；没有报工缓存时为 null，
-        // 表格显示「—」，同步一次即可补上。
+        // 工时随窗口变化，所以由服务端按当前窗口给出；首次查询当前窗口时，
+        // 服务端会自动补齐缓存。
         lastPlans = payload.plans
         // 刷新后对账：已关闭或已消失的计划立刻退出选择。
         selectedPlanIds = reconcileSelection(selectedPlanIds, lastPlans)
@@ -1131,7 +1150,7 @@ export function renderPage() {
         importErrorList.replaceChildren()
         for (const error of payload.errors) {
           const item = document.createElement('li')
-          item.textContent = '第 ' + error.row + ' 行：' + error.message
+          item.textContent = formatImportError(error)
           importErrorList.append(item)
         }
         importCommit.disabled = !summary.canCommit
