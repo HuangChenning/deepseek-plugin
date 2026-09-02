@@ -80,11 +80,11 @@ Query results are cached in a per-machine SQLite database at
 leaves your machine and is not part of this repository. The plugin's settings
 panel shows what it covers and can clear it.
 
-**同步最新数据 also fetches work-hour records, which is why it is slow.** There
-are far more of them than plans — 2026 has 34,258 work records against 953
-plans — so a month takes about a minute. Hours are fetched only for the queried
-date range, and a plain query never fetches them: it shows the hours already
-cached, or `—` when there are none.
+**同步最新数据 also fetches work-hour records, which is why it is slow.** They
+outnumber plans by roughly an order of magnitude, so a month takes about a
+minute. Hours are fetched only for the queried date range, and a plain query
+never fetches them: it shows the hours already cached, or `—` when there are
+none.
 
 ## Filters
 
