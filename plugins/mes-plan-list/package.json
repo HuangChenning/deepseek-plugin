@@ -10,8 +10,17 @@
     "./package.json": "./package.json"
   },
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
-    "client": { "platform": "web" }
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
   },
-  "scripts": { "test": "node --test" }
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "exceljs": "4.4.0"
+  }
 }
