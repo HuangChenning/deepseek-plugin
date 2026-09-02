@@ -77,11 +77,25 @@ export function buildMailPreview({ profileKey, planIds, plans, mappings, setting
     }
   }
 
+  // 同一个人可能有多个历史 MES 账号，各自名下都有逾期计划。按邮箱合并，
+  // 保证「每位执行人每批最多一封邮件」，而不是一个账号一封。
+  const byEmail = new Map()
+  for (const group of groups.values()) {
+    const key = group.email.toLowerCase()
+    const merged = byEmail.get(key)
+    if (merged === undefined) byEmail.set(key, { ...group, plans: [...group.plans] })
+    else {
+      for (const plan of group.plans) {
+        if (!merged.plans.some((existing) => existing.id === plan.id)) merged.plans.push(plan)
+      }
+    }
+  }
+
   return {
-    groups: [...groups.values()]
+    groups: [...byEmail.values()]
       .sort((left, right) => left.executorId.localeCompare(right.executorId))
       .map((group) => {
-        const planIdsForExecutor = group.plans.map((plan) => plan.id)
+        const planIdsForExecutor = group.plans.map((plan) => plan.id).sort((left, right) => left - right)
         const variables = {
           executorName: group.executorName,
           planCount: String(planIdsForExecutor.length),

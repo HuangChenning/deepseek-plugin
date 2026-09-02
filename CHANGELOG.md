@@ -13,9 +13,13 @@ All notable changes to this project will be documented in this file.
   since the preview is never mailed about. Sending is sequential; one failure
   does not stop the batch, a transient network error is retried once, and
   failed recipients can be retried on their own.
-- Executor email addresses are managed in the plugin: an Excel import with an
-  added/updated/unchanged preview (a workbook with any bad row writes nothing),
-  a downloadable template, and an export.
+- Executor email addresses are managed in the plugin. The workbook has two
+  columns — 执行人姓名 and 邮箱地址 — and the template pre-fills the names found
+  in your plan cache, so you only supply addresses. MES's internal executor ID
+  never appears in it; the server resolves names back to IDs itself. One person
+  holding several MES accounts still receives a single merged email per batch.
+  The import shows an added/updated/unchanged preview, and a workbook with any
+  bad row writes nothing.
 - SMTP settings support SSL/TLS and forced STARTTLS only. The password is kept
   in the macOS Keychain, never on disk; **保存** and **发送测试邮件** are
   separate so a profile can be verified before it is stored.

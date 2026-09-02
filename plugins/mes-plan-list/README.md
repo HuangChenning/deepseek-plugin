@@ -198,10 +198,25 @@ removes it.
 ### Executor email mapping
 
 MES does not carry executor email addresses, so they are supplied as a
-workbook. **下载导入模板** produces a sheet with exactly these three headers:
+workbook with exactly two columns:
 
-| 执行人 ID | 执行人姓名 | 邮箱地址 |
-| --- | --- | --- |
+| 执行人姓名 | 邮箱地址 |
+| --- | --- |
+
+**下载导入模板** pre-fills the name column with every executor that appears in
+your cached plans, so you only fill in addresses. MES's internal `executorId`
+never appears in the workbook — it is not shown anywhere in the UI, so asking
+you to supply it would be asking for something you cannot obtain. The server
+resolves each name back to an ID from the plan cache.
+
+One person can hold several MES accounts (an old and a current one), so a name
+may resolve to several IDs. All of them are stored against the same address,
+and the preview merges them: **one person receives one email per batch**, no
+matter how many accounts their overdue plans are spread across.
+
+A name that appears in no cached plan is reported as a row error rather than
+silently dropped, and writing the same person on two rows is an error too —
+the server cannot know which address you meant.
 
 Import is two-phase. The upload is parsed in memory and shown as a preview
 classified into added / updated / unchanged / errors. **A workbook with any row

@@ -10,7 +10,8 @@ import { MailStore, profileKey } from './mail-store.js'
 import { validateMailSettings } from './mail-settings.js'
 import { deletePassword, readPassword, writePassword } from './keychain.js'
 import {
-  createMappingTemplate, exportMappings, ImportPreviewStore, parseMappingWorkbook, previewMappingImport,
+  buildExecutorIndex, createMappingTemplate, exportMappings, ImportPreviewStore,
+  parseMappingWorkbook, previewMappingImport, resolveMappingRows,
 } from './mail-mappings.js'
 import { MailPreviewStore, revalidateAndBuildMailPreview } from './mail-preview.js'
 import { createTransport, sendTestMail } from './mailer.js'
@@ -269,6 +270,11 @@ export function createHandlers({
     } catch (error) {
       throw new GatewayError(error.message || 'MES 查询计划失败，请稍后重试')
     }
+  }
+
+  /** 姓名 -> executorId[]：由本地计划缓存反查，用户因此不必知道 MES 的内部 ID。 */
+  function executorIndex() {
+    return buildExecutorIndex(store().readPlans({ startDate: FULL_RANGE.startDate, endDate: FULL_RANGE.endDate }))
   }
 
   async function passwordOf(profile) {
@@ -530,7 +536,7 @@ export function createHandlers({
       writeJson(response, 200, { ok: true, mappings: mailStore().listMappings(profile) })
     }),
     handleMailMappingTemplate: mailRoute({ methods: ['GET'], gatewayError: '生成导入模板失败' }, readAuth, async ({ response }) => {
-      writeWorkbook(response, await createMappingTemplate(), 'mes-plan-list-email-template.xlsx')
+      writeWorkbook(response, await createMappingTemplate([...executorIndex().keys()].sort()), 'mes-plan-list-email-template.xlsx')
     }),
     handleMailMappingExport: mailRoute({ methods: ['GET'], gatewayError: '导出邮箱映射失败' }, readAuth, async ({ response, profile }) => {
       writeWorkbook(response, await exportMappings(mailStore().listMappings(profile)), 'mes-plan-list-emails.xlsx')
@@ -543,7 +549,8 @@ export function createHandlers({
       } catch {
         throw new RequestError('无法解析该 Excel 文件')
       }
-      const preview = previewMappingImport(mailStore().listMappings(profile), parsed)
+      const resolved = resolveMappingRows(parsed, executorIndex())
+      const preview = previewMappingImport(mailStore().listMappings(profile), resolved)
       // 有任何行错误就不签发令牌，导入因此天然是零写入的。
       writeJson(response, 200, {
         ok: true,

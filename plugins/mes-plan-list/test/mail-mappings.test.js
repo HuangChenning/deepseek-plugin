@@ -5,13 +5,15 @@ import ExcelJS from 'exceljs'
 
 import {
   ImportPreviewStore,
+  buildExecutorIndex,
+  resolveMappingRows,
   createMappingTemplate,
   exportMappings,
   parseMappingWorkbook,
   previewMappingImport,
 } from '../src/mail-mappings.js'
 
-async function workbookBuffer(rows, headers = ['执行人 ID', '执行人姓名', '邮箱地址']) {
+async function workbookBuffer(rows, headers = ['执行人姓名', '邮箱地址']) {
   const workbook = new ExcelJS.Workbook()
   const sheet = workbook.addWorksheet('映射')
   sheet.addRow(headers)
@@ -26,13 +28,38 @@ const current = [
 
 test('parses the fixed Chinese mapping headers and normalizes cell values', async () => {
   const result = await parseMappingWorkbook(await workbookBuffer([
-    [1001, ' 张三 ', ' zhangsan@example.invalid '],
+    [' 张三 ', ' zhangsan@example.invalid '],
   ]))
 
+  // 表格只收姓名和邮箱：MES 的 executorId 在界面上从不出现，用户填不出来。
   assert.deepEqual(result, {
-    rows: [{ executorId: '1001', executorName: '张三', email: 'zhangsan@example.invalid' }],
+    rows: [{ executorId: '', executorName: '张三', email: 'zhangsan@example.invalid' }],
     errors: [],
   })
+})
+
+test('resolves a name to every MES account that person has', () => {
+  // 同名多 ID 是同一个人的历史账号，不是两个人：全部展开并共用一个邮箱。
+  const index = buildExecutorIndex([
+    { executorList: [{ executorId: 7686, executorName: '杨波' }] },
+    { executorList: [{ executorId: 372227, executorName: '杨波' }, { executorId: 15401, executorName: null }] },
+  ])
+  const resolved = resolveMappingRows({ rows: [{ executorName: '杨波', email: 'yb@example.invalid' }], errors: [] }, index)
+
+  assert.deepEqual(resolved.rows, [
+    { executorId: '372227', executorName: '杨波', email: 'yb@example.invalid' },
+    { executorId: '7686', executorName: '杨波', email: 'yb@example.invalid' },
+  ])
+  assert.deepEqual(resolved.errors, [])
+})
+
+test('a name that appears in no plan is an error rather than a silent drop', () => {
+  const index = buildExecutorIndex([{ executorList: [{ executorId: 900, executorName: '张三' }] }])
+  const resolved = resolveMappingRows({ rows: [{ executorName: '查无此人', email: 'x@example.invalid' }], errors: [] }, index)
+
+  assert.deepEqual(resolved.rows, [])
+  assert.equal(resolved.errors.length, 1)
+  assert.match(resolved.errors[0].message, /找不到执行人/)
 })
 
 test('classifies incoming mappings as added, updated, and unchanged', () => {
@@ -54,49 +81,57 @@ test('classifies incoming mappings as added, updated, and unchanged', () => {
   })
 })
 
-test('reports duplicate IDs and invalid emails as row errors', async () => {
+test('reports a repeated person and an invalid email as row errors', async () => {
   const result = await parseMappingWorkbook(await workbookBuffer([
-    ['1001', '张三', 'zhangsan@example.invalid'],
-    [' 1001 ', '李四', 'lisi@example.invalid'],
-    ['1002', '王五', 'not-an-email'],
+    ['张三', 'zhangsan@example.invalid'],
+    ['张三', 'again@example.invalid'],
+    ['王五', 'not-an-address'],
   ]))
 
+  // 同一个人写了两行，服务端无从判断该用哪个邮箱，必须让用户自己决定。
   assert.deepEqual(result.rows, [])
-  assert.equal(result.errors.length, 3)
-  assert.ok(result.errors.some((error) => error.code === 'duplicate-id' && error.rowNumber === 2))
-  assert.ok(result.errors.some((error) => error.code === 'duplicate-id' && error.rowNumber === 3))
-  assert.ok(result.errors.some((error) => error.code === 'invalid-email' && error.rowNumber === 4))
+  assert.deepEqual(result.errors.map((e) => e.code).sort(), ['duplicate-name', 'duplicate-name', 'invalid-email'])
 })
 
 test('reports missing required cells and prevents any import write', async () => {
-  const parsed = await parseMappingWorkbook(await workbookBuffer([
-    ['', '无 ID', 'noid@example.invalid'],
-    ['1002', '', 'noname@example.invalid'],
-    ['1003', '无邮箱', ''],
+  const result = await parseMappingWorkbook(await workbookBuffer([
+    ['', 'nobody@example.invalid'],
+    ['李四', ''],
   ]))
-  const preview = previewMappingImport(current, parsed)
 
-  assert.equal(preview.canCommit, false)
-  assert.equal(preview.added.length, 0)
-  assert.equal(preview.updated.length, 0)
-  assert.equal(preview.unchanged.length, 0)
-  assert.equal(preview.errors.length, 3)
+  assert.deepEqual(result.rows, [])
+  assert.deepEqual(result.errors.map((e) => e.field).sort(), ['email', 'executorName'])
 })
 
-test('creates a template with exactly the required Chinese headers', async () => {
-  const workbook = new ExcelJS.Workbook()
-  await workbook.xlsx.load(await createMappingTemplate())
-  assert.deepEqual(workbook.worksheets[0].getRow(1).values.slice(1), ['执行人 ID', '执行人姓名', '邮箱地址'])
-  assert.equal(workbook.worksheets[0].rowCount, 1)
+test('creates a template with the two headers and prefills known names', async () => {
+  const parsed = await parseMappingWorkbook(await createMappingTemplate(['张三', '杨波']))
+
+  // 预填姓名后用户只需补邮箱列，不必自己回忆有哪些执行人。
+  assert.deepEqual(parsed.rows, [])
+  assert.deepEqual(parsed.errors.map((e) => e.field), ['email', 'email'])
+  const empty = await parseMappingWorkbook(await createMappingTemplate())
+  assert.deepEqual(empty, { rows: [], errors: [] })
 })
 
-test('exports mappings that can be imported without changing rows', async () => {
-  const rows = [
-    { executorId: '1001', executorName: '张三', email: 'zhangsan@example.invalid' },
-    { executorId: '1002', executorName: '李四', email: 'lisi@example.invalid' },
+test('exports one row per person and re-imports to the same mappings', async () => {
+  const stored = [
+    { executorId: '372227', executorName: '杨波', email: 'yb@example.invalid' },
+    { executorId: '7686', executorName: '杨波', email: 'yb@example.invalid' },
+    { executorId: '900', executorName: '张三', email: 'zs@example.invalid' },
   ]
-  const parsed = await parseMappingWorkbook(await exportMappings(rows))
-  assert.deepEqual(parsed, { rows, errors: [] })
+  const parsed = await parseMappingWorkbook(await exportMappings(stored))
+
+  // 一个人一行，导出再导入应当还原成同样的存储行。
+  assert.deepEqual(parsed.rows.map((r) => r.executorName), ['杨波', '张三'])
+  const index = buildExecutorIndex([
+    { executorList: [{ executorId: 372227, executorName: '杨波' }, { executorId: 7686, executorName: '杨波' }] },
+    { executorList: [{ executorId: 900, executorName: '张三' }] },
+  ])
+  const resolved = resolveMappingRows(parsed, index)
+  assert.deepEqual(
+    [...resolved.rows].sort((a, b) => a.executorId.localeCompare(b.executorId)),
+    [...stored].sort((a, b) => a.executorId.localeCompare(b.executorId)),
+  )
 })
 
 test('consumes an import preview token only once and only for its profile', () => {

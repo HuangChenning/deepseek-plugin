@@ -478,6 +478,16 @@ function mailHandlers(overrides = {}) {
   const sent = []
   const deps = {
     readAuth: overrides.readAuth ?? (async () => ({ loggedIn: true, account: ACCOUNT })),
+    // 姓名 -> ID 的索引来自计划缓存；注入假的，避免测试创建真实 .db 文件。
+    store: overrides.store ?? (() => ({
+      readPlans: () => [{
+        executorList: [
+          { executorId: 1001, executorName: '张三' },
+          { executorId: 1002, executorName: '李四' },
+          { executorId: 1003, executorName: '王五' },
+        ],
+      }],
+    })),
     mailStore: () => mailStore,
     readMailPassword: async (profile) => passwords.get(profile),
     saveMailPassword: async (profile, password) => { passwords.set(profile, password) },
