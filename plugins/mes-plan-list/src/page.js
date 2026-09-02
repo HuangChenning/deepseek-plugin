@@ -15,6 +15,69 @@ export function paginatePlans(plans, requestedPage, pageSize) {
   return { items: plans.slice(start, start + pageSize), page, totalPages, total }
 }
 
+/** 只有「已逾期未结束」(status 3) 的计划能进入风险交底邮件。 */
+export function isOverdue(plan) {
+  return Number(plan?.status) === 3
+}
+
+export function toggleSelection(selected, id, checked) {
+  if (checked) selected.add(id)
+  else selected.delete(id)
+  return selected
+}
+
+/** 表头全选只作用于当前页，并跳过不可选的行。 */
+export function setPageSelection(selected, plans, checked) {
+  for (const plan of plans) {
+    if (!isOverdue(plan)) continue
+    if (checked) selected.add(plan.id)
+    else selected.delete(plan.id)
+  }
+  return selected
+}
+
+export function pageSelectionState(selected, plans) {
+  const selectable = plans.filter(isOverdue)
+  const chosen = selectable.filter((plan) => selected.has(plan.id)).length
+  if (selectable.length === 0 || chosen === 0) return 'none'
+  return chosen === selectable.length ? 'all' : 'partial'
+}
+
+/**
+ * 刷新后对账。计划可能已被关闭，或根本不在新结果里；这些 ID 必须立刻退出选择，
+ * 否则用户会带着一个「看不见却仍会发信」的选中项去点确认。
+ */
+export function reconcileSelection(selected, plans) {
+  const eligible = new Set(plans.filter(isOverdue).map((plan) => plan.id))
+  return new Set([...selected].filter((id) => eligible.has(id)))
+}
+
+/** 发送的三个前置：拿到令牌、显式勾选确认、当前没有进行中的请求。 */
+export function canSend({ token, confirmed, busy }) {
+  return typeof token === 'string' && token !== '' && confirmed === true && busy !== true
+}
+
+export function importSummary(preview) {
+  const added = preview.added.length
+  const updated = preview.updated.length
+  return {
+    added,
+    updated,
+    unchanged: preview.unchanged.length,
+    errors: preview.errors.length,
+    // 零变更也不提交：那只会白写一次全表。
+    canCommit: preview.canCommit === true && added + updated > 0,
+  }
+}
+
+export function sendSummary(result) {
+  return {
+    text: '共 ' + result.totalMessages + ' 封，成功 ' + result.succeeded + ' 封，失败 ' + result.failed + ' 封。',
+    canRetry: result.failed > 0 && typeof result.retryToken === 'string' && result.retryToken !== '',
+    retryToken: result.retryToken,
+  }
+}
+
 export function renderPage() {
   return `<!doctype html>
 <html lang="zh-CN">
@@ -267,6 +330,54 @@ export function renderPage() {
       <p id="cache-feedback" class="feedback" role="status"></p>
     </section>
 
+    <section id="mail-panel" class="panel">
+      <h2>逾期风险邮件提醒</h2>
+      <p class="hint">只有「已逾期未结束」的计划可以发送。密码保存在 macOS 钥匙串，邮箱映射与发送历史保存在本机独立数据库，清空计划缓存不会删除它们。</p>
+
+      <form id="mail-settings-form" class="mail-form">
+        <label class="field"><span>发件人名称</span><input id="mail-sender-name" type="text" autocomplete="off"></label>
+        <label class="field"><span>发件邮箱</span><input id="mail-sender-email" type="email" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>SMTP 主机</span><input id="mail-host" type="text" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>端口</span><input id="mail-port" type="number" min="1" max="65535"></label>
+        <label class="field"><span>安全模式</span><select id="mail-security"><option value="tls">SSL/TLS</option><option value="starttls">强制 STARTTLS</option></select></label>
+        <label class="field"><span>SMTP 用户名</span><input id="mail-username" type="text" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>客户端专用密码</span><input id="mail-password" type="password" autocomplete="new-password" placeholder="留空则保留已保存的密码"></label>
+        <label class="field wide"><span>邮件主题</span><input id="mail-subject" type="text"></label>
+        <label class="field wide"><span>邮件正文</span><textarea id="mail-body" rows="5"></textarea></label>
+        <p class="hint">模板变量仅支持 {{executorName}}、{{planCount}}、{{planList}}。</p>
+        <div class="row">
+          <button type="button" id="save-mail-settings">保存设置</button>
+          <input id="mail-test-recipient" type="email" placeholder="测试收件地址" spellcheck="false">
+          <button type="button" id="test-mail" class="ghost">发送测试邮件</button>
+          <button type="button" id="clear-mail-password" class="ghost">清除已存密码</button>
+        </div>
+        <p id="mail-settings-feedback" class="feedback" role="status"></p>
+      </form>
+
+      <h3>执行人邮箱映射</h3>
+      <div class="row">
+        <button type="button" id="mapping-template" class="ghost">下载导入模板</button>
+        <label class="ghost file"><span>导入 Excel</span><input id="mapping-import-file" type="file" accept=".xlsx"></label>
+      </div>
+      <p class="hint">导出文件包含真实邮箱，属于私有数据，请勿提交到仓库或转发。</p>
+      <div class="row">
+        <button type="button" id="mapping-export" class="ghost">导出映射</button>
+      </div>
+      <div id="mapping-import-preview" hidden>
+        <p id="mapping-import-summary" class="feedback" role="status"></p>
+        <ul id="mapping-import-errors" class="mail-errors"></ul>
+        <button type="button" id="mapping-import-commit" disabled>确认导入</button>
+      </div>
+      <table id="mail-mappings" class="mail-table"><tbody></tbody></table>
+      <p id="mail-mappings-feedback" class="feedback" role="status"></p>
+
+      <h3>发送历史</h3>
+      <div class="row">
+        <button type="button" id="clear-mail-history" class="ghost">清空历史</button>
+      </div>
+      <div id="mail-history"></div>
+    </section>
+
     <form id="query-form" class="filters">
       <label class="field"><span>开始日期</span><input name="startDate" type="date" required></label>
       <label class="field"><span>结束日期</span><input name="endDate" type="date" required></label>
@@ -301,7 +412,23 @@ export function renderPage() {
     </form>
 
     <p id="status" class="status" role="status"></p>
+    <div id="mail-actionbar" class="mail-actionbar" hidden>
+      <span id="mail-selected-count">已选 0 条</span>
+      <button type="button" id="mail-clear-selection" class="ghost">清空选择</button>
+      <button type="button" id="mail-preview-button">生成邮件预览</button>
+    </div>
     <div id="results"></div>
+    <section id="mail-preview" class="panel" hidden>
+      <h2>邮件预览</h2>
+      <div id="mail-preview-groups"></div>
+      <label class="confirm"><input id="mail-confirm" type="checkbox"> 我已逐封核对上述内容，确认发送</label>
+      <div class="row">
+        <button type="button" id="mail-send" disabled>确认发送</button>
+        <button type="button" id="mail-cancel" class="ghost">取消</button>
+        <button type="button" id="mail-retry" hidden>重试失败项</button>
+      </div>
+      <p id="mail-result" class="feedback" role="status"></p>
+    </section>
   </div>
 
   <script>
@@ -311,6 +438,17 @@ export function renderPage() {
     const results = document.querySelector('#results')
     const applyFilterSelection = ${applyFilterSelection}
     const paginatePlans = ${paginatePlans}
+    const isOverdue = ${isOverdue}
+    const toggleSelection = ${toggleSelection}
+    const setPageSelection = ${setPageSelection}
+    const pageSelectionState = ${pageSelectionState}
+    const reconcileSelection = ${reconcileSelection}
+    const canSend = ${canSend}
+    const importSummary = ${importSummary}
+    const sendSummary = ${sendSummary}
+
+    /** 跨页选择的唯一真相，活在表格渲染之外，因此翻页不会丢。 */
+    let selectedPlanIds = new Set()
 
     // 面板嵌在 DSH 中央列时跟随外壳主题；独立打开时保持 prefers-color-scheme。
     window.addEventListener('message', (event) => {
@@ -399,7 +537,14 @@ export function renderPage() {
       else delete status.dataset.tone
     }
 
+    const selectCell = (plan) => isOverdue(plan)
+      ? '<td class="pick"><input type="checkbox" data-pick="' + escapeHtml(plan.id) + '"'
+        + (selectedPlanIds.has(plan.id) ? ' checked' : '') + ' aria-label="选择计划 ' + escapeHtml(plan.id) + '"></td>'
+      // 非逾期计划留空格而不是禁用复选框：它根本不是候选项。
+      : '<td class="pick"></td>'
+
     const renderRow = (plan) => '<tr>'
+      + selectCell(plan)
       + '<td class="id">' + escapeHtml(plan.id) + '</td>'
       + '<td class="title">' + escapeHtml(plan.title) + '</td>'
       + '<td class="company">' + escapeHtml(plan.contractName) + '</td>'
@@ -418,8 +563,12 @@ export function renderPage() {
       }
       const paged = paginatePlans(plans, currentPage, pageSize)
       currentPage = paged.page
+      const state = pageSelectionState(selectedPlanIds, paged.items)
+      const header = '<th class="pick"><input type="checkbox" id="pick-page"'
+        + (state === 'all' ? ' checked' : '') + ' aria-label="选择本页全部逾期计划"></th>'
       const labels = ['计划ID', '计划标题', '合同名称', '合同类型', '执行人', '报工工时(h)', '计划开始', '计划结束', '进行状态']
       results.innerHTML = '<div class="table-wrap"><table><thead><tr>'
+        + header
         + labels.map((label) => '<th>' + label + '</th>').join('')
         + '</tr></thead><tbody>' + paged.items.map(renderRow).join('') + '</tbody></table></div>'
         + '<div class="pagination"><span>共 ' + paged.total + ' 条，第 ' + paged.page + ' / ' + paged.totalPages + ' 页</span>'
@@ -427,7 +576,28 @@ export function renderPage() {
         + [20, 30, 40, 50, 100].map((size) => '<option value="' + size + '"' + (size === pageSize ? ' selected' : '') + '>' + size + ' 条</option>').join('')
         + '</select></label><button type="button" class="ghost" data-page="previous"' + (paged.page === 1 ? ' disabled' : '') + '>上一页</button>'
         + '<button type="button" class="ghost" data-page="next"' + (paged.page === paged.totalPages ? ' disabled' : '') + '>下一页</button></div></div>'
+      const pickPage = results.querySelector('#pick-page')
+      if (pickPage !== null) pickPage.indeterminate = state === 'partial'
+      updateMailActionBar()
     }
+
+    results.addEventListener('change', (event) => {
+      const target = event.target
+      if (target.id === 'pick-page') {
+        setPageSelection(selectedPlanIds, paginatePlans(lastPlans, currentPage, pageSize).items, target.checked)
+        renderPlans(lastPlans)
+        return
+      }
+      if (target.dataset === undefined || target.dataset.pick === undefined) return
+      toggleSelection(selectedPlanIds, Number(target.dataset.pick), target.checked)
+      const pickPage = results.querySelector('#pick-page')
+      if (pickPage !== null) {
+        const state = pageSelectionState(selectedPlanIds, paginatePlans(lastPlans, currentPage, pageSize).items)
+        pickPage.checked = state === 'all'
+        pickPage.indeterminate = state === 'partial'
+      }
+      updateMailActionBar()
+    })
 
     const DAY_MS = 24 * 60 * 60 * 1000
     const sync = document.querySelector('#sync')
@@ -496,6 +666,8 @@ export function renderPage() {
         // 工时随窗口变化，所以由服务端按当前窗口给出；没有报工缓存时为 null，
         // 表格显示「—」，同步一次即可补上。
         lastPlans = payload.plans
+        // 刷新后对账：已关闭或已消失的计划立刻退出选择。
+        selectedPlanIds = reconcileSelection(selectedPlanIds, lastPlans)
         currentPage = 1
         if (payload.hours !== null && payload.hours !== undefined) {
           for (const plan of lastPlans) plan.windowHours = payload.hours[plan.id] ?? 0
@@ -744,6 +916,346 @@ export function renderPage() {
     loadCliVersion()
     loadCache()
     loadPluginVersion()
+    /*
+     * 邮件提醒。所有来自服务端的内容（收件人、主题、正文、映射、历史）都用 textContent
+     * 写入，不拼 HTML —— 这些字符串既有用户导入的，也有 MES 返回的。
+     */
+    const MAIL_API = '/api/plugins/mes-plan-list/mail'
+    const mailPanel = document.querySelector('#mail-preview')
+    const mailGroups = document.querySelector('#mail-preview-groups')
+    const mailConfirm = document.querySelector('#mail-confirm')
+    const mailSend = document.querySelector('#mail-send')
+    const mailRetry = document.querySelector('#mail-retry')
+    const mailResult = document.querySelector('#mail-result')
+    const mailSettingsFeedback = document.querySelector('#mail-settings-feedback')
+    const mailMappingsBody = document.querySelector('#mail-mappings tbody')
+    const mailMappingsFeedback = document.querySelector('#mail-mappings-feedback')
+    const mailHistory = document.querySelector('#mail-history')
+    const importPreviewBox = document.querySelector('#mapping-import-preview')
+    const importSummaryLine = document.querySelector('#mapping-import-summary')
+    const importErrorList = document.querySelector('#mapping-import-errors')
+    const importCommit = document.querySelector('#mapping-import-commit')
+
+    let mailToken = ''
+    let importToken = ''
+    let mailBusy = false
+
+    const mailFields = {
+      senderName: document.querySelector('#mail-sender-name'),
+      senderEmail: document.querySelector('#mail-sender-email'),
+      smtpHost: document.querySelector('#mail-host'),
+      smtpPort: document.querySelector('#mail-port'),
+      securityMode: document.querySelector('#mail-security'),
+      smtpUsername: document.querySelector('#mail-username'),
+      subjectTemplate: document.querySelector('#mail-subject'),
+      bodyTemplate: document.querySelector('#mail-body'),
+    }
+
+    const mailJson = async (path, options = {}) => {
+      const response = await fetch(MAIL_API + path, options)
+      const payload = await response.json()
+      if (!response.ok || !payload.ok) throw new Error(payload.error || '操作失败，请稍后重试')
+      return payload
+    }
+
+    /** 同一时刻只允许一个邮件请求在飞，避免重复发送。 */
+    const exclusive = async (feedback, working, run) => {
+      if (mailBusy) return
+      mailBusy = true
+      updateMailSendButton()
+      feedback.textContent = working
+      try {
+        feedback.textContent = (await run()) || ''
+      } catch (error) {
+        feedback.textContent = error.message || '操作失败，请稍后重试'
+      } finally {
+        mailBusy = false
+        updateMailSendButton()
+      }
+    }
+
+    function updateMailSendButton() {
+      mailSend.disabled = !canSend({ token: mailToken, confirmed: mailConfirm.checked, busy: mailBusy })
+    }
+
+    // 就地取节点：这个函数被提升到脚本顶部，早于下面的 const 初始化，
+    // 用闭包变量会在「渲染发生在脚本求值完成前」时踩到 TDZ。
+    function updateMailActionBar() {
+      document.querySelector('#mail-selected-count').textContent = '已选 ' + selectedPlanIds.size + ' 条'
+      document.querySelector('#mail-actionbar').hidden = selectedPlanIds.size === 0
+    }
+
+    const settingsPayload = () => ({
+      senderName: mailFields.senderName.value.trim(),
+      senderEmail: mailFields.senderEmail.value.trim(),
+      smtpHost: mailFields.smtpHost.value.trim(),
+      smtpPort: Number(mailFields.smtpPort.value),
+      securityMode: mailFields.securityMode.value,
+      smtpUsername: mailFields.smtpUsername.value.trim(),
+      subjectTemplate: mailFields.subjectTemplate.value,
+      bodyTemplate: mailFields.bodyTemplate.value,
+    })
+
+    const postJson = (path, body) => ({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const loadMailSettings = async () => {
+      try {
+        const payload = await mailJson('/settings')
+        if (payload.settings !== null) {
+          for (const [key, field] of Object.entries(mailFields)) field.value = payload.settings[key] ?? ''
+        }
+        // 密码只回报「有没有」，从不回显。
+        mailSettingsFeedback.textContent = payload.hasPassword ? '已保存 SMTP 密码。' : '尚未保存 SMTP 密码。'
+      } catch (error) {
+        mailSettingsFeedback.textContent = error.message || '无法读取邮件设置'
+      }
+    }
+
+    document.querySelector('#save-mail-settings').addEventListener('click', () => {
+      const password = document.querySelector('#mail-password').value
+      exclusive(mailSettingsFeedback, '正在保存…', async () => {
+        const body = settingsPayload()
+        if (password !== '') body.password = password
+        const payload = await mailJson('/settings', { ...postJson('', body), method: 'PUT' })
+        document.querySelector('#mail-password').value = ''
+        return payload.hasPassword ? '已保存，SMTP 密码在钥匙串中。' : '已保存，但尚未设置 SMTP 密码。'
+      })
+    })
+
+    document.querySelector('#test-mail').addEventListener('click', () => {
+      const recipient = document.querySelector('#mail-test-recipient').value.trim()
+      const password = document.querySelector('#mail-password').value
+      exclusive(mailSettingsFeedback, '正在发送测试邮件…', async () => {
+        const body = { ...settingsPayload(), recipient }
+        if (password !== '') body.password = password
+        await mailJson('/settings/test', postJson('', body))
+        return '测试邮件已发出，请到该地址确认。'
+      })
+    })
+
+    document.querySelector('#clear-mail-password').addEventListener('click', () => {
+      exclusive(mailSettingsFeedback, '正在清除…', async () => {
+        await mailJson('/settings/password', { method: 'DELETE' })
+        return '已从钥匙串中清除 SMTP 密码。'
+      })
+    })
+
+    const renderMappings = (rows) => {
+      mailMappingsBody.replaceChildren()
+      for (const row of rows) {
+        const tr = document.createElement('tr')
+        for (const value of [row.executorId, row.executorName, row.email]) {
+          const td = document.createElement('td')
+          td.textContent = value
+          tr.append(td)
+        }
+        const actions = document.createElement('td')
+        const remove = document.createElement('button')
+        remove.type = 'button'
+        remove.className = 'ghost'
+        remove.dataset.removeMapping = row.executorId
+        remove.textContent = '删除'
+        actions.append(remove)
+        tr.append(actions)
+        mailMappingsBody.append(tr)
+      }
+    }
+
+    const loadMappings = async () => {
+      try {
+        renderMappings((await mailJson('/mappings')).mappings)
+      } catch (error) {
+        mailMappingsFeedback.textContent = error.message || '无法读取邮箱映射'
+      }
+    }
+
+    mailMappingsBody.addEventListener('click', (event) => {
+      const executorId = event.target.dataset && event.target.dataset.removeMapping
+      if (executorId === undefined) return
+      exclusive(mailMappingsFeedback, '正在删除…', async () => {
+        renderMappings((await mailJson('/mappings?executorId=' + encodeURIComponent(executorId), { method: 'DELETE' })).mappings)
+        return '已删除该执行人的邮箱。'
+      })
+    })
+
+    const download = async (path, filename) => {
+      const response = await fetch(MAIL_API + path)
+      if (!response.ok) throw new Error('下载失败，请稍后重试')
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      anchor.click()
+      URL.revokeObjectURL(url)
+    }
+
+    document.querySelector('#mapping-template').addEventListener('click', () => {
+      exclusive(mailMappingsFeedback, '正在生成模板…', async () => {
+        await download('/mappings/template', 'mes-plan-list-email-template.xlsx')
+        return '模板已下载。'
+      })
+    })
+
+    document.querySelector('#mapping-export').addEventListener('click', () => {
+      exclusive(mailMappingsFeedback, '正在导出…', async () => {
+        await download('/mappings/export', 'mes-plan-list-emails.xlsx')
+        return '已导出，文件含真实邮箱，请妥善保管。'
+      })
+    })
+
+    document.querySelector('#mapping-import-file').addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0]
+      if (file === undefined) return
+      exclusive(mailMappingsFeedback, '正在解析…', async () => {
+        const payload = await mailJson('/mappings/import-preview', {
+          method: 'POST',
+          headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+          body: await file.arrayBuffer(),
+        })
+        event.target.value = ''
+        const summary = importSummary(payload)
+        importToken = payload.token ?? ''
+        importPreviewBox.hidden = false
+        importSummaryLine.textContent = '新增 ' + summary.added + ' 条，更新 ' + summary.updated
+          + ' 条，无变化 ' + summary.unchanged + ' 条，错误 ' + summary.errors + ' 条。'
+        importErrorList.replaceChildren()
+        for (const error of payload.errors) {
+          const item = document.createElement('li')
+          item.textContent = '第 ' + error.row + ' 行：' + error.message
+          importErrorList.append(item)
+        }
+        importCommit.disabled = !summary.canCommit
+        return summary.canCommit ? '' : '存在错误或没有变更，本次导入不会写入任何数据。'
+      })
+    })
+
+    importCommit.addEventListener('click', () => {
+      exclusive(mailMappingsFeedback, '正在导入…', async () => {
+        const payload = await mailJson('/mappings/import-commit', postJson('', { token: importToken }))
+        importToken = ''
+        importCommit.disabled = true
+        importPreviewBox.hidden = true
+        renderMappings(payload.mappings)
+        return '导入完成。'
+      })
+    })
+
+    const renderHistory = (batches) => {
+      mailHistory.replaceChildren()
+      if (batches.length === 0) {
+        const empty = document.createElement('p')
+        empty.className = 'empty'
+        empty.textContent = '暂无发送记录。'
+        mailHistory.append(empty)
+        return
+      }
+      for (const batch of batches) {
+        const block = document.createElement('div')
+        const title = document.createElement('p')
+        title.textContent = batch.createdAt + ' · ' + sendSummary(batch).text
+        block.append(title)
+        const list = document.createElement('ul')
+        for (const row of batch.results) {
+          const item = document.createElement('li')
+          item.textContent = row.executorName + ' · ' + row.maskedEmail + ' · '
+            + (row.status === 'sent' ? '成功' : '失败 ' + row.errorCode)
+          list.append(item)
+        }
+        block.append(list)
+        mailHistory.append(block)
+      }
+    }
+
+    const loadHistory = async () => {
+      try {
+        renderHistory((await mailJson('/history')).history)
+      } catch {
+        mailHistory.replaceChildren()
+      }
+    }
+
+    document.querySelector('#clear-mail-history').addEventListener('click', () => {
+      exclusive(mailMappingsFeedback, '正在清空…', async () => {
+        renderHistory((await mailJson('/history', { method: 'DELETE' })).history)
+        return '已清空发送历史。'
+      })
+    })
+
+    const renderMailPreview = (groups) => {
+      mailGroups.replaceChildren()
+      for (const group of groups) {
+        const details = document.createElement('details')
+        const summary = document.createElement('summary')
+        summary.textContent = group.executorName + ' · ' + group.maskedEmail + ' · ' + group.planIds.length + ' 个计划'
+        const subject = document.createElement('p')
+        subject.textContent = '主题：' + group.subject
+        const body = document.createElement('pre')
+        body.textContent = group.body
+        details.append(summary, subject, body)
+        mailGroups.append(details)
+      }
+    }
+
+    const resetMailPreview = () => {
+      mailToken = ''
+      mailConfirm.checked = false
+      mailRetry.hidden = true
+      mailPanel.hidden = true
+      updateMailSendButton()
+    }
+
+    document.querySelector('#mail-clear-selection').addEventListener('click', () => {
+      selectedPlanIds = new Set()
+      resetMailPreview()
+      renderPlans(lastPlans)
+    })
+
+    document.querySelector('#mail-preview-button').addEventListener('click', () => {
+      exclusive(mailResult, '正在核对计划状态并生成预览…', async () => {
+        const payload = await mailJson('/preview', postJson('', { planIds: [...selectedPlanIds] }))
+        mailToken = payload.token
+        renderMailPreview(payload.groups)
+        mailPanel.hidden = false
+        mailRetry.hidden = true
+        mailConfirm.checked = false
+        return '请逐封核对后勾选确认。'
+      })
+    })
+
+    mailConfirm.addEventListener('change', updateMailSendButton)
+    document.querySelector('#mail-cancel').addEventListener('click', resetMailPreview)
+
+    const runBatch = (path, token, working) => {
+      exclusive(mailResult, working, async () => {
+        const payload = await mailJson(path, postJson('', { token }))
+        const summary = sendSummary(payload)
+        mailToken = ''
+        mailConfirm.checked = false
+        mailRetry.hidden = !summary.canRetry
+        mailRetry.dataset.token = summary.retryToken ?? ''
+        renderMailPreview(payload.results.map((row) => ({
+          executorName: row.executorName,
+          maskedEmail: row.maskedEmail,
+          planIds: row.planIds,
+          subject: row.status === 'sent' ? '已发送' : '发送失败：' + row.errorCode,
+          body: row.status === 'sent' ? '' : (row.errorMessage || ''),
+        })))
+        await loadHistory()
+        return summary.text + (summary.canRetry ? ' 可重试失败项。' : '')
+      })
+    }
+
+    mailSend.addEventListener('click', () => runBatch('/send', mailToken, '正在顺序发送…'))
+    mailRetry.addEventListener('click', () => runBatch('/retry', mailRetry.dataset.token || '', '正在重试失败项…'))
+
+    loadMailSettings()
+    loadMappings()
+    loadHistory()
+
   </script>
 </body>
 </html>`
