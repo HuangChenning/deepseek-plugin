@@ -63,40 +63,40 @@ function validateInput(body) {
   return {
     startDate: body.startDate,
     endDate: body.endDate,
-    statuses: validateCodes(body.statuses, ['0', '1', '2', '3'], '状态值'),
+    statuses: validateCodes(body.statuses, ['0', '1', '3'], '状态值'),
     checkTypes: validateCodes(body.checkTypes, ['0', '1', '2', '3', '4', '5', '6'], '类型值'),
     refresh: body.refresh === true,
   }
 }
 
 /**
- * 读缓存优先：能被已同步窗口覆盖就本地取，否则打 MES 取回并落盘。
+ * 计划全量缓存在本地，查询只读本地。
  *
- * 同步一律按全状态进行（status 留空），状态过滤在本地做——带状态的返回不是窗口
- * 全集，用它做幽灵行清理会误删。
+ * 同步一次把 MES 上的计划全部取回并整表替换，因此本地就是完整副本：任意日期窗口、
+ * 任意状态与类型组合都能直接筛，不需要判断「缓存范围是否覆盖这次查询」，也不会因为
+ * 同步窗口比查询窗口窄而漏掉跨界的计划。删除检测同样是平凡的——这次没返回的就是
+ * 已删除的。
  */
+const FULL_RANGE = { startDate: '2000-01-01', endDate: '2099-12-31', status: '' }
+
 async function resolvePlans({ startDate, endDate, statuses, checkTypes, refresh }, query, store, hours) {
   const window = { startDate, endDate }
   const filter = { startDate, endDate, statuses, checkTypes }
-  // 工时只在报工缓存覆盖该窗口时才有；否则留空，页面显示「—」，等一次同步。
-  const withHours = (plans, syncedAt, fromCache) => ({
-    plans,
-    syncedAt,
-    fromCache,
-    hours: store.findCoveringHours(window) === undefined ? null : store.readHours(window),
-  })
+  const cached = store.lastSync()
 
-  if (!refresh) {
-    const syncedAt = store.findCoveringSync(window)
-    if (syncedAt !== undefined) return withHours(store.readPlans(filter), syncedAt, true)
+  // 从未同步过的机器上，第一次查询顺带把全量取回来，不打断用户。
+  if (refresh || cached === undefined) {
+    store.replaceAllPlans(await query(FULL_RANGE))
+    // 报工按查询窗口取：它比计划多一个数量级，全量会是几十分钟。
+    if (refresh) store.writeHours(window, await hours(window))
   }
-  // 同步范围扩展到覆盖所有缓存过的窗口，否则窄窗口同步只清掉自己窗口内的幽灵行。
-  const syncWindow = store.coveringWindow(window)
-  const fresh = await query({ ...syncWindow, status: '' })
-  const syncedAt = store.writeWindow(syncWindow, fresh)
-  // 报工按查询窗口取，不跟着计划窗口扩展：它比计划多一个数量级，扩到全年要几分钟。
-  if (refresh) store.writeHours(window, await hours(window))
-  return withHours(store.readPlans(filter), syncedAt, false)
+
+  return {
+    plans: store.readPlans(filter),
+    syncedAt: store.lastSync(),
+    fromCache: !refresh && cached !== undefined,
+    hours: store.findCoveringHours(window) === undefined ? null : store.readHours(window),
+  }
 }
 
 function validateConfigInput(body) {

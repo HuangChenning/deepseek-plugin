@@ -23,7 +23,7 @@ export const DB_PATH = join(homedir(), '.dsh', 'storages', 'mes-plan-list', 'pla
  * 表结构版本。缓存是可重建的派生数据，所以版本不匹配时直接重建空表，让下次查询
  * 重新同步——比写迁移、或让旧行带着空字段参与筛选都更简单也更不容易出错。
  */
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS plans (
@@ -35,11 +35,9 @@ CREATE TABLE IF NOT EXISTS plans (
   payload TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS plans_window ON plans (start_date, end_date);
-CREATE TABLE IF NOT EXISTS windows (
-  start_date TEXT NOT NULL,
-  end_date TEXT NOT NULL,
-  synced_at TEXT NOT NULL,
-  PRIMARY KEY (start_date, end_date)
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS work_hours (
   id INTEGER PRIMARY KEY,
@@ -88,7 +86,7 @@ export class PlanStore {
       const [{ user_version: version }] = this.#db.prepare('PRAGMA user_version').all()
       if (version !== SCHEMA_VERSION) {
         // 旧结构直接丢弃重建：缓存可以从 MES 重新取回，迁移的复杂度不值得。
-        this.#db.exec(`DROP TABLE IF EXISTS plans; DROP TABLE IF EXISTS windows;
+        this.#db.exec(`DROP TABLE IF EXISTS plans; DROP TABLE IF EXISTS windows; DROP TABLE IF EXISTS meta;
                        DROP TABLE IF EXISTS work_hours; DROP TABLE IF EXISTS hour_windows;`)
         this.#db.exec(SCHEMA)
         this.#db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
@@ -104,34 +102,10 @@ export class PlanStore {
     this.#db = undefined
   }
 
-  /**
-   * 找出能覆盖该窗口的最近一次同步时间，没有则返回 undefined。
-   * 覆盖 = 已同步窗口比请求窗口更宽或相等。
-   */
-  findCoveringSync({ startDate, endDate }) {
-    const row = this.#open()
-      .prepare(`SELECT synced_at FROM windows
-                WHERE start_date <= ? AND end_date >= ?
-                ORDER BY synced_at DESC LIMIT 1`)
-      .get(startDate, endDate)
-    return row === undefined ? undefined : row.synced_at
-  }
-
-  /**
-   * 把要同步的窗口扩展到覆盖所有已缓存过的范围。
-   *
-   * 幽灵行的根源不是「做了增量」，而是「同步窗口比缓存过的范围窄」——窄窗口同步
-   * 只能清掉它自己窗口内已被 MES 删除的计划。取当前窗口与历史所有已同步窗口的
-   * 并集来同步，正确性上就等价于全量，但只有在真正缓存过大范围时才付出全量的
-   * 代价；用户也不必再判断「这次该增量还是全量」。范围大到不想要了就清空缓存。
-   */
-  coveringWindow({ startDate, endDate }) {
-    const row = this.#open().prepare('SELECT MIN(start_date) AS s, MAX(end_date) AS e FROM windows').get()
-    if (row === undefined || row.s === null || row.s === undefined) return { startDate, endDate }
-    return {
-      startDate: row.s < startDate ? row.s : startDate,
-      endDate: row.e > endDate ? row.e : endDate,
-    }
+  /** 上次全量同步的时间；从未同步过则是 undefined。 */
+  lastSync() {
+    const row = this.#open().prepare("SELECT value FROM meta WHERE key = 'plans_synced_at'").get()
+    return row === undefined ? undefined : row.value
   }
 
   /**
@@ -184,15 +158,11 @@ export class PlanStore {
     return syncedAt
   }
 
-  /** 缓存概况：覆盖的日期范围、计划条数、最近一次同步时间。 */
+  /** 缓存概况：计划条数与上次全量同步时间。 */
   summary() {
-    const db = this.#open()
-    const span = db.prepare('SELECT MIN(start_date) AS s, MAX(end_date) AS e, MAX(synced_at) AS at FROM windows').get()
     return {
-      count: db.prepare('SELECT COUNT(*) AS c FROM plans').get().c,
-      startDate: span?.s == null ? '' : String(span.s).slice(0, 10),
-      endDate: span?.e == null ? '' : String(span.e).slice(0, 10),
-      syncedAt: span?.at == null ? '' : span.at,
+      count: this.#open().prepare('SELECT COUNT(*) AS c FROM plans').get().c,
+      syncedAt: this.lastSync() ?? '',
     }
   }
 
@@ -202,7 +172,7 @@ export class PlanStore {
     db.exec('BEGIN')
     try {
       db.exec('DELETE FROM plans')
-      db.exec('DELETE FROM windows')
+      db.exec('DELETE FROM meta')
       db.exec('DELETE FROM work_hours')
       db.exec('DELETE FROM hour_windows')
       db.exec('COMMIT')
@@ -213,15 +183,25 @@ export class PlanStore {
   }
 
   /**
-   * 按 MES 的窗口语义从本地取计划。
+   * 取出与窗口**有交集**的计划。
    *
-   * 状态和类型都支持多选，且都在本地完成：MES 的 `--status` 与 `--check-type`
-   * 只接受单值（实测 `--status 2,3` 返回 0 条），但缓存里存的是窗口全集，因此
-   * 任意组合都能筛。空数组表示不限。
+   * 这与 MES 自己的过滤语义不同：`--start-date/--end-date` 只返回整个落在窗口内
+   * 的计划，于是一个 5 月开始、8 月结束的计划不会出现在 8 月的查询里——而使用者
+   * 期望看到它。所以本地按区间重叠筛：计划开始 <= 窗口结束，且计划结束 >= 窗口
+   * 开始。比较按日粒度，当天开始或当天结束的计划都算命中。
+   *
+   * 这也意味着同步必须比查询窗口取得更宽，否则跨界的计划根本不在库里；
+   * 见 coveringWindow 与 LOOKBACK_DAYS。
+   *
+   * 状态为「结束」（2）的计划一律不返回，界面上也没有这个筛选项。
+   *
+   * 其余状态和类型都支持多选，同样在本地完成：MES 的 `--status` 与 `--check-type`
+   * 只接受单值（实测 `--status 2,3` 返回 0 条）。空数组表示不限。
    */
   readPlans({ startDate, endDate, statuses = [], checkTypes = [] }) {
-    const clauses = ['start_date >= ?', 'end_date <= ?']
-    const params = [boundary(startDate), boundary(endDate)]
+    // 已结束的计划不在关注范围内，始终排除——界面上也没有对应的筛选项。
+    const clauses = ['substr(start_date, 1, 10) <= ?', 'substr(end_date, 1, 10) >= ?', 'status IS NOT 2']
+    const params = [String(endDate).slice(0, 10), String(startDate).slice(0, 10)]
     if (statuses.length > 0) {
       clauses.push(`status IN (${statuses.map(() => '?').join(', ')})`)
       params.push(...statuses.map(Number))
@@ -237,40 +217,29 @@ export class PlanStore {
   }
 
   /**
-   * 写入一次全状态同步的结果。
+   * 用一次全量结果整体替换计划表。
    *
-   * 同一事务里做三件事：删掉该窗口内本次未返回的行（MES 侧已删除的幽灵行——
-   * MES 对该窗口的返回就是全集，所以这个判断是精确的）、upsert 本次返回的行、
-   * 记录窗口的同步时间。
+   * 全量同步让删除检测变得平凡：MES 这次没给的计划就是不存在的，直接清表重写即可，
+   * 不需要按窗口推断哪些行成了幽灵。这也是选择全量而非按窗口增量的主要理由——
+   * 窗口方案要靠「同步范围比查询范围更宽」的启发式才能不漏计划，边界很难说清。
    */
-  writeWindow({ startDate, endDate }, plans, syncedAt = new Date().toISOString()) {
+  replaceAllPlans(plans, syncedAt = new Date().toISOString()) {
     const db = this.#open()
-    const keep = plans.map((plan) => plan.id).filter((id) => Number.isInteger(id))
     db.exec('BEGIN')
     try {
-      const placeholders = keep.map(() => '?').join(', ')
-      db.prepare(`DELETE FROM plans WHERE start_date >= ? AND end_date <= ?
-                  ${keep.length === 0 ? '' : `AND id NOT IN (${placeholders})`}`)
-        .run(boundary(startDate), boundary(endDate), ...keep)
-      const upsert = db.prepare(`INSERT INTO plans (id, start_date, end_date, status, check_type, payload)
-                                 VALUES (?, ?, ?, ?, ?, ?)
-                                 ON CONFLICT(id) DO UPDATE SET
-                                   start_date = excluded.start_date,
-                                   end_date = excluded.end_date,
-                                   status = excluded.status,
-                                   check_type = excluded.check_type,
-                                   payload = excluded.payload`)
+      db.exec('DELETE FROM plans')
+      const insert = db.prepare(`INSERT OR REPLACE INTO plans (id, start_date, end_date, status, check_type, payload)
+                                 VALUES (?, ?, ?, ?, ?, ?)`)
       for (const plan of plans) {
         if (!Number.isInteger(plan.id)) continue
-        upsert.run(
+        insert.run(
           plan.id, stamp(plan.startDate), stamp(plan.endDate),
           Number(plan.status) || 0, Number.isInteger(plan.checkType) ? plan.checkType : null,
           JSON.stringify(plan),
         )
       }
-      db.prepare(`INSERT INTO windows (start_date, end_date, synced_at) VALUES (?, ?, ?)
-                  ON CONFLICT(start_date, end_date) DO UPDATE SET synced_at = excluded.synced_at`)
-        .run(startDate, endDate, syncedAt)
+      db.prepare("INSERT INTO meta (key, value) VALUES ('plans_synced_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .run(syncedAt)
       db.exec('COMMIT')
     } catch (error) {
       db.exec('ROLLBACK')
