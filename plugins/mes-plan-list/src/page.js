@@ -99,6 +99,10 @@ export function renderPage() {
       padding: 3px 11px; font-size: 12px; font-weight: 400; color: var(--muted); cursor: pointer;
     }
     .chip:hover { background: var(--surface-sunken); border-color: var(--accent); color: var(--text); filter: none; }
+    .chip[data-active] {
+      background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500;
+    }
+    .chip[data-active]:hover { background: var(--accent); color: #fff; }
 
     .status { margin: 18px 0 12px; min-height: 20px; font-size: 13px; color: var(--muted); }
     .status[data-tone="error"] {
@@ -253,6 +257,7 @@ export function renderPage() {
 
       <div class="picker" data-picker="status">
         <span class="picker-label">状态</span>
+        <button type="button" class="chip" data-clear="status">全部</button>
         <label><input type="checkbox" value="0"><span>未开始</span></label>
         <label><input type="checkbox" value="1"><span>进行中</span></label>
         <label><input type="checkbox" value="2"><span>结束</span></label>
@@ -260,6 +265,7 @@ export function renderPage() {
       </div>
       <div class="picker" data-picker="checkType">
         <span class="picker-label">类型</span>
+        <button type="button" class="chip" data-clear="checkType">全部</button>
         <label><input type="checkbox" value="0"><span>巡检</span></label>
         <label><input type="checkbox" value="1"><span>培训</span></label>
         <label><input type="checkbox" value="2"><span>现场人天</span></label>
@@ -370,7 +376,7 @@ export function renderPage() {
     const renderRow = (plan) => '<tr>'
       + '<td class="id">' + escapeHtml(plan.id) + '</td>'
       + '<td class="title">' + escapeHtml(plan.title) + '</td>'
-      + '<td class="company">' + escapeHtml(plan.companyName) + '</td>'
+      + '<td class="company">' + escapeHtml(plan.contractName) + '</td>'
       + '<td>' + escapeHtml(plan.checkTypeDesc) + '</td>'
       + '<td>' + escapeHtml(executors(plan)) + '</td>'
       + '<td class="num">' + escapeHtml(plan.windowHours ?? '—') + '</td>'
@@ -384,7 +390,7 @@ export function renderPage() {
         results.innerHTML = '<p class="empty">没有符合条件的实施计划。</p>'
         return
       }
-      const labels = ['计划ID', '计划标题', '客户', '合同类型', '执行人', '报工工时(h)', '计划开始', '计划结束', '进行状态']
+      const labels = ['计划ID', '计划标题', '合同名称', '合同类型', '执行人', '报工工时(h)', '计划开始', '计划结束', '进行状态']
       results.innerHTML = '<div class="table-wrap"><table><thead><tr>'
         + labels.map((label) => '<th>' + label + '</th>').join('')
         + '</tr></thead><tbody>' + plans.map(renderRow).join('') + '</tbody></table></div>'
@@ -395,6 +401,12 @@ export function renderPage() {
 
     /** 最近一次查询的结果，供「加载报工工时」就地补上工时后重绘。 */
     let lastPlans = []
+
+    /** 「全部」按钮的选中态：该组一个都没勾时，就是「全部」。 */
+    const syncAllChip = (name) => {
+      const chip = document.querySelector('.chip[data-clear="' + name + '"]')
+      if (chip !== null) chip.toggleAttribute('data-active', picked(name).length === 0)
+    }
 
     /** 某个多选组里被勾中的值；空数组表示不限。 */
     const picked = (name) => Array.from(
@@ -659,6 +671,20 @@ export function renderPage() {
         checkPlugin.disabled = false
       }
     })
+
+    for (const chip of document.querySelectorAll('.chip[data-clear]')) {
+      chip.addEventListener('click', () => {
+        for (const input of document.querySelectorAll('[data-picker="' + chip.dataset.clear + '"] input')) {
+          input.checked = false
+        }
+        syncAllChip(chip.dataset.clear)
+      })
+    }
+    for (const picker of document.querySelectorAll('[data-picker]')) {
+      picker.addEventListener('change', () => { syncAllChip(picker.dataset.picker) })
+    }
+    syncAllChip('status')
+    syncAllChip('checkType')
 
     loadConfig()
     refreshAuth()
