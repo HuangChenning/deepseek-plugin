@@ -11,11 +11,12 @@ async function tempStore() {
   return new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-store-')), 'plans.db'))
 }
 
-// 结束时间用 00:00:00，与真实跨天计划一致（如计划 16160 的 `2026-07-25 00:00:00`）：
-// MES 把窗口末端也当作当天零点，所以这样的计划落在以该日为末端的窗口内。
-function plan(id, startDate, endDate, status = 2) {
+// 默认给「进行中」：默认数据不该落在会被过滤掉的「结束」上。
+function plan(id, startDate, endDate, status = 1) {
   return { id, startDate: `${startDate} 08:00:00`, endDate: `${endDate} 00:00:00`, status, title: `计划 ${id}` }
 }
+
+const ids = (rows) => rows.map((row) => row.id).sort((a, b) => a - b)
 
 // 没查过的机器上不该出现 .db 文件。
 test('does not create the database until something is written', async () => {
@@ -23,238 +24,168 @@ test('does not create the database until something is written', async () => {
 
   assert.equal(existsSync(store.path), false)
 
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [plan(1, '2026-07-05', '2026-07-06')])
+  store.replaceAllPlans([plan(1, '2026-07-05', '2026-07-06')])
 
   assert.equal(existsSync(store.path), true)
   store.close()
 })
 
-// MES 的 --start-date/--end-date 是完全包含（已实测），本地必须复现同样的语义，
-// 否则缓存返回的结果会和直接问 MES 不一致。
-test('reads back only plans fully inside the requested window', async () => {
-  const store = await tempStore()
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [
-    plan(1, '2026-07-05', '2026-07-06'),
-    plan(2, '2026-07-13', '2026-07-25'),
-    plan(3, '2026-07-20', '2026-07-30'),
-  ])
-
-  const inside = store.readPlans({ startDate: '2026-07-13', endDate: '2026-07-25' })
-  const narrower = store.readPlans({ startDate: '2026-07-14', endDate: '2026-07-25' })
-
-  assert.deepEqual(inside.map((row) => row.id), [2])
-  assert.deepEqual(narrower.map((row) => row.id), [], '开始日期早于窗口的计划不该返回')
-  store.close()
-})
-
-test('serves a narrower window from a wider synced window', async () => {
-  const store = await tempStore()
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-08-31' }, [plan(1, '2026-07-05', '2026-07-06')])
-
-  assert.notEqual(store.findCoveringSync({ startDate: '2026-07-01', endDate: '2026-07-31' }), undefined)
-  assert.equal(store.findCoveringSync({ startDate: '2026-06-01', endDate: '2026-07-31' }), undefined,
-    '未被覆盖的窗口必须回源，不能拿部分数据冒充完整结果')
-  store.close()
-})
-
 /*
- * MES 把 `--end-date 2026-07-31` 解释为 `2026-07-31 00:00:00`，所以当天带时间的
- * 结束日期（18:00 等）会被它排除。本地比较若截断到日期就会多算——实测中这让一个
- * 窄窗口本地返回 11 条而 MES 只有 6 条。缓存必须与直接问 MES 完全一致，否则不可信。
+ * 查询按区间重叠返回，而不是 MES 那种「整个落在窗口内」——否则一个 5 月开始、
+ * 8 月结束的计划不会出现在 8 月的查询里，而使用者期望看到它。下面覆盖一个计划
+ * 相对窗口的全部位置关系。
  */
-test('excludes plans ending later in the day than the window boundary, as MES does', async () => {
+test('returns every plan whose dates overlap the window', async () => {
   const store = await tempStore()
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-08-31' }, [
-    { id: 1, startDate: '2026-07-05 08:00:00', endDate: '2026-07-06 18:00:00', status: 2 },
-    { id: 2, startDate: '2026-07-01 08:30:00', endDate: '2026-07-31 18:00:00', status: 2 },
-    { id: 3, startDate: '2026-07-10 08:00:00', endDate: '2026-07-31 00:00:00', status: 2 },
+  store.replaceAllPlans([
+    plan(1, '2026-08-10', '2026-08-20'),  // 完全落在窗口内
+    plan(2, '2026-07-01', '2026-08-10'),  // 左跨界：结束在窗口内
+    plan(3, '2026-08-20', '2026-10-01'),  // 右跨界：开始在窗口内
+    plan(4, '2026-07-01', '2026-10-01'),  // 反包含：计划覆盖整个窗口
+    plan(5, '2026-06-01', '2026-08-04'),  // 结束正好等于窗口开始
+    plan(6, '2026-09-02', '2026-11-01'),  // 开始正好等于窗口结束
+    plan(7, '2026-07-01', '2026-08-03'),  // 完全在窗口之前
+    plan(8, '2026-09-03', '2026-09-10'),  // 完全在窗口之后
   ])
 
-  const july = store.readPlans({ startDate: '2026-07-01', endDate: '2026-07-31' })
+  const rows = store.readPlans({ startDate: '2026-08-04', endDate: '2026-09-02' })
 
-  assert.deepEqual(july.map((row) => row.id), [1, 3], '结束于 07-31 18:00 的计划超出了窗口边界')
+  assert.deepEqual(ids(rows), [1, 2, 3, 4, 5, 6], '与窗口有交集的都要返回，边界相接也算')
   store.close()
 })
 
-test('includes a plan starting later in the day than the window start, as MES does', async () => {
+// 比较按日粒度：当天几点开始或结束都不影响命中，否则「结束于 07-31 18:00」这类
+// 计划会莫名其妙地被排除在 7 月之外。
+test('ignores the time of day when matching window boundaries', async () => {
   const store = await tempStore()
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-08-31' }, [
-    { id: 1, startDate: '2026-07-01 12:40:55', endDate: '2026-07-07 12:40:55', status: 2 },
+  store.replaceAllPlans([
+    { id: 1, startDate: '2026-07-05 08:00:00', endDate: '2026-07-06 18:00:00', status: 1 },
+    { id: 2, startDate: '2026-07-01 08:30:00', endDate: '2026-07-31 18:00:00', status: 1 },
+    { id: 3, startDate: '2026-07-10 08:00:00', endDate: '2026-07-31 00:00:00', status: 1 },
   ])
 
-  assert.deepEqual(store.readPlans({ startDate: '2026-07-01', endDate: '2026-07-31' }).map((r) => r.id), [1])
+  assert.deepEqual(ids(store.readPlans({ startDate: '2026-07-01', endDate: '2026-07-31' })), [1, 2, 3])
+  store.close()
+})
+
+// 已结束的计划一律不显示，界面上也没有这个筛选项，所以这条不能靠调用方来保证。
+test('never returns finished plans', async () => {
+  const store = await tempStore()
+  store.replaceAllPlans([
+    plan(1, '2026-07-05', '2026-07-06', 1),
+    plan(2, '2026-07-07', '2026-07-08', 2),
+    plan(3, '2026-07-09', '2026-07-10', 3),
+  ])
+
+  assert.deepEqual(ids(store.readPlans({ startDate: '2026-07-01', endDate: '2026-07-31' })), [1, 3])
   store.close()
 })
 
 /*
  * MES 的 --status / --check-type 只接受单值（实测 `--status 2,3` 返回 0 条），
- * 多选因此只能靠本地缓存实现——缓存里存的是窗口全集，任意组合都能筛。
+ * 多选因此只能靠本地缓存实现——本地存着全量，任意组合都能筛。
  */
 test('filters by several statuses at once, which MES itself cannot do', async () => {
   const store = await tempStore()
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [
-    { ...plan(1, '2026-07-05', '2026-07-06', 1), checkType: 0 },
-    { ...plan(2, '2026-07-07', '2026-07-08', 2), checkType: 5 },
-    { ...plan(3, '2026-07-09', '2026-07-10', 3), checkType: 5 },
+  store.replaceAllPlans([
+    plan(1, '2026-07-05', '2026-07-06', 0),
+    plan(2, '2026-07-07', '2026-07-08', 1),
+    plan(3, '2026-07-09', '2026-07-10', 3),
   ])
 
   const window = { startDate: '2026-07-01', endDate: '2026-07-31' }
-  assert.deepEqual(store.readPlans({ ...window, statuses: ['2', '3'] }).map((r) => r.id), [2, 3])
+  assert.deepEqual(ids(store.readPlans({ ...window, statuses: ['1', '3'] })), [2, 3])
   store.close()
 })
 
 test('filters by several check types at once', async () => {
   const store = await tempStore()
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [
+  store.replaceAllPlans([
     { ...plan(1, '2026-07-05', '2026-07-06'), checkType: 0 },
     { ...plan(2, '2026-07-07', '2026-07-08'), checkType: 5 },
     { ...plan(3, '2026-07-09', '2026-07-10'), checkType: 1 },
   ])
 
   const window = { startDate: '2026-07-01', endDate: '2026-07-31' }
-  assert.deepEqual(store.readPlans({ ...window, checkTypes: ['0', '1'] }).map((r) => r.id), [1, 3])
+  assert.deepEqual(ids(store.readPlans({ ...window, checkTypes: ['0', '1'] })), [1, 3])
   store.close()
 })
 
 test('combines status and check type filters', async () => {
   const store = await tempStore()
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [
-    { ...plan(1, '2026-07-05', '2026-07-06', 2), checkType: 5 },
+  store.replaceAllPlans([
+    { ...plan(1, '2026-07-05', '2026-07-06', 1), checkType: 5 },
     { ...plan(2, '2026-07-07', '2026-07-08', 3), checkType: 5 },
-    { ...plan(3, '2026-07-09', '2026-07-10', 2), checkType: 0 },
+    { ...plan(3, '2026-07-09', '2026-07-10', 1), checkType: 0 },
   ])
 
   const rows = store.readPlans({
-    startDate: '2026-07-01', endDate: '2026-07-31', statuses: ['2'], checkTypes: ['5'],
+    startDate: '2026-07-01', endDate: '2026-07-31', statuses: ['1'], checkTypes: ['5'],
   })
 
-  assert.deepEqual(rows.map((r) => r.id), [1])
-  store.close()
-})
-
-test('filters by status locally', async () => {
-  const store = await tempStore()
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [
-    plan(1, '2026-07-05', '2026-07-06', 2),
-    plan(2, '2026-07-07', '2026-07-08', 3),
-  ])
-
-  assert.deepEqual(store.readPlans({ startDate: '2026-07-01', endDate: '2026-07-31', statuses: ['3'] }).map((r) => r.id), [2])
-  store.close()
-})
-
-// MES 侧删掉的计划不会主动通知；同步该窗口时必须把它清掉，否则会留下幽灵行。
-test('drops plans that disappeared from MES on the next sync of that window', async () => {
-  const store = await tempStore()
-  const window = { startDate: '2026-07-01', endDate: '2026-07-31' }
-  store.writeWindow(window, [plan(1, '2026-07-05', '2026-07-06'), plan(2, '2026-07-07', '2026-07-08')])
-
-  store.writeWindow(window, [plan(1, '2026-07-05', '2026-07-06')])
-
-  assert.deepEqual(store.readPlans(window).map((row) => row.id), [1])
-  store.close()
-})
-
-// 清理必须限定在本次同步的窗口内，不能波及窗口外已缓存的数据。
-test('keeps plans outside the synced window when cleaning up', async () => {
-  const store = await tempStore()
-  store.writeWindow({ startDate: '2026-06-01', endDate: '2026-06-30' }, [plan(9, '2026-06-10', '2026-06-11')])
-
-  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [plan(1, '2026-07-05', '2026-07-06')])
-
-  assert.deepEqual(store.readPlans({ startDate: '2026-06-01', endDate: '2026-06-30' }).map((r) => r.id), [9])
+  assert.deepEqual(ids(rows), [1])
   store.close()
 })
 
 /*
- * 幽灵行的根源是「同步窗口比缓存过的范围窄」。coveringWindow 把同步范围扩展到
- * 覆盖所有缓存过的窗口，用户因此不必判断该做增量还是全量——正确性是自动的。
+ * 全量同步让删除检测变得平凡：MES 这次没返回的计划就是已删除的。这正是选择全量
+ * 而非按窗口增量的主要理由——窗口方案要靠「同步范围比查询范围更宽」的启发式，
+ * 边界很难说清，还容易漏。
  */
-test('expands a sync window to cover everything already cached', async () => {
+test('drops plans that no longer exist in MES', async () => {
   const store = await tempStore()
-  store.writeWindow({ startDate: '2026-01-01', endDate: '2026-12-31' }, [])
-  store.writeWindow({ startDate: '2025-06-01', endDate: '2025-06-30' }, [])
+  store.replaceAllPlans([plan(1, '2026-07-05', '2026-07-06'), plan(2, '2026-07-07', '2026-07-08')])
 
-  const expanded = store.coveringWindow({ startDate: '2026-08-01', endDate: '2026-08-31' })
+  store.replaceAllPlans([plan(1, '2026-07-05', '2026-07-06')])
 
-  assert.deepEqual(expanded, { startDate: '2025-06-01', endDate: '2026-12-31' })
-  store.close()
-})
-
-test('leaves the window untouched when nothing is cached yet', async () => {
-  const store = await tempStore()
-
-  const window = { startDate: '2026-08-01', endDate: '2026-08-31' }
-  assert.deepEqual(store.coveringWindow(window), window, '首次查询不该被扩大')
-  store.close()
-})
-
-test('still widens the window when the request reaches beyond what is cached', async () => {
-  const store = await tempStore()
-  store.writeWindow({ startDate: '2026-06-01', endDate: '2026-06-30' }, [])
-
-  assert.deepEqual(store.coveringWindow({ startDate: '2026-01-01', endDate: '2026-12-31' }),
-    { startDate: '2026-01-01', endDate: '2026-12-31' })
-  store.close()
-})
-
-// 扩展后的同步会连带清掉此前窄窗口同步够不到的幽灵行。
-test('an expanded sync clears ghost rows left outside an earlier narrow sync', async () => {
-  const store = await tempStore()
-  const year = { startDate: '2026-01-01', endDate: '2026-12-31' }
-  store.writeWindow(year, [plan(1, '2026-03-05', '2026-03-06'), plan(2, '2026-08-05', '2026-08-06')])
-
-  // 计划 1 在 MES 侧被删除。用户只想同步 8 月，但同步范围被扩展到覆盖全年。
-  const asked = store.coveringWindow({ startDate: '2026-08-01', endDate: '2026-08-31' })
-  store.writeWindow(asked, [plan(2, '2026-08-05', '2026-08-06')])
-
-  assert.deepEqual(store.readPlans(year).map((row) => row.id), [2], '3 月的幽灵行也被清掉了')
-  store.close()
-})
-
-test('clearing the cache resets both the rows and the synced range', async () => {
-  const store = await tempStore()
-  store.writeWindow({ startDate: '2026-01-01', endDate: '2026-12-31' }, [plan(1, '2026-03-05', '2026-03-06')])
-
-  store.clear()
-
-  assert.deepEqual(store.summary(), { count: 0, startDate: '', endDate: '', syncedAt: '' })
-  assert.deepEqual(store.coveringWindow({ startDate: '2026-08-01', endDate: '2026-08-31' }),
-    { startDate: '2026-08-01', endDate: '2026-08-31' }, '清空后同步范围回到只覆盖当前查询')
-  store.close()
-})
-
-test('summarizes the cached span and row count', async () => {
-  const store = await tempStore()
-  store.writeWindow({ startDate: '2026-01-01', endDate: '2026-12-31' },
-    [plan(1, '2026-03-05', '2026-03-06'), plan(2, '2026-08-05', '2026-08-06')], '2026-09-02T00:00:00.000Z')
-
-  assert.deepEqual(store.summary(),
-    { count: 2, startDate: '2026-01-01', endDate: '2026-12-31', syncedAt: '2026-09-02T00:00:00.000Z' })
+  assert.deepEqual(ids(store.readPlans({ startDate: '2026-01-01', endDate: '2026-12-31' })), [1])
   store.close()
 })
 
 test('updates a plan in place when MES returns a changed version', async () => {
   const store = await tempStore()
-  const window = { startDate: '2026-07-01', endDate: '2026-07-31' }
-  store.writeWindow(window, [plan(1, '2026-07-05', '2026-07-06', 1)])
+  store.replaceAllPlans([plan(1, '2026-07-05', '2026-07-06', 1)])
 
-  store.writeWindow(window, [{ ...plan(1, '2026-07-05', '2026-07-06', 2), title: '改过的标题' }])
+  store.replaceAllPlans([{ ...plan(1, '2026-07-05', '2026-07-06', 3), title: '改过的标题' }])
 
-  const rows = store.readPlans(window)
+  const rows = store.readPlans({ startDate: '2026-07-01', endDate: '2026-07-31' })
   assert.equal(rows.length, 1)
   assert.equal(rows[0].title, '改过的标题')
-  assert.equal(rows[0].status, 2)
+  assert.equal(rows[0].status, 3)
   store.close()
 })
 
-test('records a newer sync time when a window is re-synced', async () => {
+test('reports when the last full sync happened', async () => {
   const store = await tempStore()
-  const window = { startDate: '2026-07-01', endDate: '2026-07-31' }
-  store.writeWindow(window, [], '2026-07-01T00:00:00.000Z')
 
-  store.writeWindow(window, [], '2026-07-02T00:00:00.000Z')
+  assert.equal(store.lastSync(), undefined, '从未同步过')
 
-  assert.equal(store.findCoveringSync(window), '2026-07-02T00:00:00.000Z')
+  store.replaceAllPlans([], '2026-09-02T00:00:00.000Z')
+  assert.equal(store.lastSync(), '2026-09-02T00:00:00.000Z')
+
+  store.replaceAllPlans([], '2026-09-03T00:00:00.000Z')
+  assert.equal(store.lastSync(), '2026-09-03T00:00:00.000Z')
+  store.close()
+})
+
+test('clearing the cache resets both the rows and the sync time', async () => {
+  const store = await tempStore()
+  store.replaceAllPlans([plan(1, '2026-03-05', '2026-03-06')])
+
+  store.clear()
+
+  assert.deepEqual(store.summary(), { count: 0, syncedAt: '' })
+  assert.equal(store.lastSync(), undefined)
+  store.close()
+})
+
+test('summarizes the cached row count and sync time', async () => {
+  const store = await tempStore()
+  store.replaceAllPlans(
+    [plan(1, '2026-03-05', '2026-03-06'), plan(2, '2026-08-05', '2026-08-06')],
+    '2026-09-02T00:00:00.000Z',
+  )
+
+  assert.deepEqual(store.summary(), { count: 2, syncedAt: '2026-09-02T00:00:00.000Z' })
   store.close()
 })

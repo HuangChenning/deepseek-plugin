@@ -92,11 +92,22 @@ none.
 | --- | --- | --- | --- |
 | `0` | 未开始 | `0` | 巡检 |
 | `1` | 进行中 | `1` | 培训 |
-| `2` | 结束 | `2` | 现场人天 |
-| `3` | 已逾期未结束 | `3` | 驻场 |
+| `3` | 已逾期未结束 | `2` | 现场人天 |
+| | | `3` | 驻场 |
 | | | `4` | 售前POC |
 | | | `5` | 维保 |
 | | | `6` | 内部事项 |
+
+Finished plans (`2`) are always excluded and have no filter option.
+
+A plan is listed when its dates **overlap** the window, not only when it falls
+entirely inside it — MES's own filter is containment-only, which would hide a
+plan running from May to August from an August query, and would drop 进行中
+plans entirely because their end dates lie in the future.
+
+Syncing therefore fetches **every** plan, not the queried range, and the local
+database is a complete copy. Any window and filter combination is then answered
+locally and instantly, with no "is the cache wide enough" question to get wrong.
 
 MES itself cannot combine values — `--status 2,3` returns nothing and
 `--check-type` takes a single int — so the filtering happens locally against

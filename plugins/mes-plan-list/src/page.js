@@ -260,7 +260,6 @@ export function renderPage() {
         <button type="button" class="chip" data-clear="status">全部</button>
         <label><input type="checkbox" value="0"><span>未开始</span></label>
         <label><input type="checkbox" value="1"><span>进行中</span></label>
-        <label><input type="checkbox" value="2"><span>结束</span></label>
         <label><input type="checkbox" value="3"><span>已逾期未结束</span></label>
       </div>
       <div class="picker" data-picker="checkType">

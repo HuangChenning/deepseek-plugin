@@ -92,7 +92,7 @@ test('serves a repeat query from the local cache without touching MES', async ()
   const { handleQuery } = createHandlers({
     query: async () => {
       calls += 1
-      return [{ id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 2 }]
+      return [{ id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 1 }]
     },
     store: () => store,
   })
@@ -113,7 +113,7 @@ test('refresh forces a resync even when the window is cached', async () => {
   const { handleQuery } = createHandlers({
     query: async () => {
       calls += 1
-      return [{ id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 2 }]
+      return [{ id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 1 }]
     },
     // 同步会连报工一起拉，不注入就会真的去调用 mes CLI。
     hours: async () => [],
@@ -129,8 +129,9 @@ test('refresh forces a resync even when the window is cached', async () => {
   store.close()
 })
 
-// 同步范围必须覆盖已缓存的一切，否则窄窗口同步只清掉自己窗口内的幽灵行。
-test('syncs a window wide enough to cover everything already cached', async () => {
+// 同步取的是全量，不是用户填的窗口：这样本地就是完整副本，任何窗口都能直接筛，
+// 也不会因为同步范围比查询范围窄而漏掉跨界的计划。
+test('syncs the full range regardless of the queried window', async () => {
   const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))
   const asked = []
   const { handleQuery } = createHandlers({
@@ -142,11 +143,10 @@ test('syncs a window wide enough to cover everything already cached', async () =
     store: () => store,
   })
 
-  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-01-01', endDate: '2026-12-31' }) }), makeResponse())
-  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-08-01', endDate: '2026-08-31', refresh: true }) }), makeResponse())
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-08-01', endDate: '2026-08-31' }) }), makeResponse())
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-03-01', endDate: '2026-03-31', refresh: true }) }), makeResponse())
 
-  assert.deepEqual(asked, ['2026-01-01~2026-12-31', '2026-01-01~2026-12-31'],
-    '第二次只想同步 8 月，但范围被扩展到覆盖已缓存的全年')
+  assert.deepEqual(asked, ['2000-01-01~2099-12-31', '2000-01-01~2099-12-31'])
   store.close()
 })
 
@@ -158,7 +158,7 @@ test('syncs the whole window regardless of the status filter', async () => {
     query: async (input) => {
       asked.push(input.status)
       return [
-        { id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 2 },
+        { id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 1 },
         { id: 2, startDate: '2026-09-12 08:00:00', endDate: '2026-09-13 18:00:00', status: 3 },
       ]
     },

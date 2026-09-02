@@ -341,10 +341,9 @@ test('registers the page, query, config, auth, CLI, and cache routes', async () 
  */
 function hoursStore({ cached, onWrite = () => {} }) {
   return () => ({
-    findCoveringSync: () => '2026-09-02T00:00:00.000Z',
-    coveringWindow: (window) => window,
+    lastSync: () => '2026-09-02T00:00:00.000Z',
     readPlans: () => [{ id: 18051 }],
-    writeWindow: () => '2026-09-02T00:00:00.000Z',
+    replaceAllPlans: () => '2026-09-02T00:00:00.000Z',
     findCoveringHours: () => cached,
     readHours: () => ({ 18051: 16 }),
     writeHours: (window, records) => { onWrite(records) },
