@@ -1,0 +1,7 @@
+# 只影响 `git archive`（GitHub Release 页面的 Source code 压缩包由它生成），
+# 不影响 git clone——clone 到的工作树仍会包含这些文件。
+#
+# CI 配置必须留在仓库里，GitHub Actions 只读仓库里的 .github/workflows；
+# 但安装这个插件的人不需要它，所以把它挡在发布压缩包之外。
+/.github        export-ignore
+/.gitattributes export-ignore
