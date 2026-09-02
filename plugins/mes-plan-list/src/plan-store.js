@@ -19,12 +19,19 @@ import { dirname, join } from 'node:path'
 
 export const DB_PATH = join(homedir(), '.dsh', 'storages', 'mes-plan-list', 'plans.db')
 
+/**
+ * 表结构版本。缓存是可重建的派生数据，所以版本不匹配时直接重建空表，让下次查询
+ * 重新同步——比写迁移、或让旧行带着空字段参与筛选都更简单也更不容易出错。
+ */
+const SCHEMA_VERSION = 2
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS plans (
   id INTEGER PRIMARY KEY,
   start_date TEXT NOT NULL,
   end_date TEXT NOT NULL,
   status INTEGER,
+  check_type INTEGER,
   payload TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS plans_window ON plans (start_date, end_date);
@@ -65,7 +72,15 @@ export class PlanStore {
     if (this.#db === undefined) {
       mkdirSync(dirname(this.path), { recursive: true })
       this.#db = new DatabaseSync(this.path)
-      this.#db.exec(SCHEMA)
+      const [{ user_version: version }] = this.#db.prepare('PRAGMA user_version').all()
+      if (version !== SCHEMA_VERSION) {
+        // 旧结构直接丢弃重建：缓存可以从 MES 重新取回，迁移的复杂度不值得。
+        this.#db.exec('DROP TABLE IF EXISTS plans; DROP TABLE IF EXISTS windows;')
+        this.#db.exec(SCHEMA)
+        this.#db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+      } else {
+        this.#db.exec(SCHEMA)
+      }
     }
     return this.#db
   }
@@ -131,18 +146,28 @@ export class PlanStore {
     }
   }
 
-  /** 按 MES 的窗口语义从本地取计划；status 为空表示全状态。 */
-  readPlans({ startDate, endDate, status = '' }) {
-    const from = boundary(startDate)
-    const to = boundary(endDate)
-    const rows = status === ''
-      ? this.#open()
-        .prepare('SELECT payload FROM plans WHERE start_date >= ? AND end_date <= ? ORDER BY start_date, id')
-        .all(from, to)
-      : this.#open()
-        .prepare('SELECT payload FROM plans WHERE start_date >= ? AND end_date <= ? AND status = ? ORDER BY start_date, id')
-        .all(from, to, Number(status))
-    return rows.map((row) => JSON.parse(row.payload))
+  /**
+   * 按 MES 的窗口语义从本地取计划。
+   *
+   * 状态和类型都支持多选，且都在本地完成：MES 的 `--status` 与 `--check-type`
+   * 只接受单值（实测 `--status 2,3` 返回 0 条），但缓存里存的是窗口全集，因此
+   * 任意组合都能筛。空数组表示不限。
+   */
+  readPlans({ startDate, endDate, statuses = [], checkTypes = [] }) {
+    const clauses = ['start_date >= ?', 'end_date <= ?']
+    const params = [boundary(startDate), boundary(endDate)]
+    if (statuses.length > 0) {
+      clauses.push(`status IN (${statuses.map(() => '?').join(', ')})`)
+      params.push(...statuses.map(Number))
+    }
+    if (checkTypes.length > 0) {
+      clauses.push(`check_type IN (${checkTypes.map(() => '?').join(', ')})`)
+      params.push(...checkTypes.map(Number))
+    }
+    return this.#open()
+      .prepare(`SELECT payload FROM plans WHERE ${clauses.join(' AND ')} ORDER BY start_date, id`)
+      .all(...params)
+      .map((row) => JSON.parse(row.payload))
   }
 
   /**
@@ -161,16 +186,21 @@ export class PlanStore {
       db.prepare(`DELETE FROM plans WHERE start_date >= ? AND end_date <= ?
                   ${keep.length === 0 ? '' : `AND id NOT IN (${placeholders})`}`)
         .run(boundary(startDate), boundary(endDate), ...keep)
-      const upsert = db.prepare(`INSERT INTO plans (id, start_date, end_date, status, payload)
-                                 VALUES (?, ?, ?, ?, ?)
+      const upsert = db.prepare(`INSERT INTO plans (id, start_date, end_date, status, check_type, payload)
+                                 VALUES (?, ?, ?, ?, ?, ?)
                                  ON CONFLICT(id) DO UPDATE SET
                                    start_date = excluded.start_date,
                                    end_date = excluded.end_date,
                                    status = excluded.status,
+                                   check_type = excluded.check_type,
                                    payload = excluded.payload`)
       for (const plan of plans) {
         if (!Number.isInteger(plan.id)) continue
-        upsert.run(plan.id, stamp(plan.startDate), stamp(plan.endDate), Number(plan.status) || 0, JSON.stringify(plan))
+        upsert.run(
+          plan.id, stamp(plan.startDate), stamp(plan.endDate),
+          Number(plan.status) || 0, Number.isInteger(plan.checkType) ? plan.checkType : null,
+          JSON.stringify(plan),
+        )
       }
       db.prepare(`INSERT INTO windows (start_date, end_date, synced_at) VALUES (?, ?, ?)
                   ON CONFLICT(start_date, end_date) DO UPDATE SET synced_at = excluded.synced_at`)

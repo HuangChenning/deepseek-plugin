@@ -81,6 +81,19 @@ test('clears the mes path without running a version check', async () => {
   assert.equal(verified, false)
 })
 
+// 筛选值域固定，不能让请求塞进任意数字——它们会直接进 SQL 的 IN 子句。
+test('rejects filter codes outside the known set', async () => {
+  const { handleQuery } = createHandlers()
+  const status = makeResponse()
+  const type = makeResponse()
+
+  await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', statuses: ['9'] }) }), status)
+  await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', checkTypes: ['nope'] }) }), type)
+
+  assert.equal(JSON.parse(status.body).error, '状态值无效')
+  assert.equal(JSON.parse(type.body).error, '类型值无效')
+})
+
 test('rejects config fields other than mesPath', async () => {
   const { handleConfig } = createHandlers()
   const response = makeResponse()
