@@ -88,10 +88,6 @@ export async function readAuthStatus() {
   }
 }
 
-/** `mes update --check` 会走网络，缓存结果，避免每次打开页面都打外部服务器。 */
-const UPDATE_CHECK_TTL_MS = 6 * 60 * 60 * 1000
-let updateCheckCache
-
 /** `mes update` 会替换正在使用的二进制，期间必须挡住其他 CLI 调用。 */
 let updating = false
 
@@ -111,17 +107,20 @@ export function isUpToDate(output) {
   return /up to date/i.test(output)
 }
 
-/** 读取 CLI 版本与更新检查结果。 */
-export async function readUpdateStatus({ refresh = false } = {}) {
-  if (!refresh && updateCheckCache !== undefined && Date.now() - updateCheckCache.at < UPDATE_CHECK_TTL_MS) {
-    return updateCheckCache.value
-  }
-  const version = await readMesVersion(await resolveMesBinary())
-  // 比默认的 30s 短：这是页面加载路径，网络不通时不该让用户干等。
+/** 只读本机已装的版本，不联网——页面加载走这条路径。 */
+export async function readCliVersion() {
+  return { version: await readMesVersion(await resolveMesBinary()) }
+}
+
+/**
+ * 检查是否有新版本。这会联网，因此只在用户主动点「检查更新」时调用：打开页面
+ * 不应该悄悄访问外部更新服务器。
+ */
+export async function readUpdateStatus() {
+  const { version } = await readCliVersion()
+  // 比默认的 30s 短：用户正在等这个结果，网络不通时不该让他干等。
   const output = await execMes(['update', '--check'], 15_000)
-  const value = { version, upToDate: isUpToDate(output), output }
-  updateCheckCache = { at: Date.now(), value }
-  return value
+  return { version, upToDate: isUpToDate(output), output }
 }
 
 /** 执行 `mes update`，返回 CLI 输出与更新后的版本。 */
@@ -132,7 +131,6 @@ export async function runMesUpdate() {
     const output = await execMes(['update'], 180_000)
     // 二进制刚被替换，版本要重新读，不能沿用更新前的值。
     const version = await readMesVersion(await resolveMesBinary())
-    updateCheckCache = undefined
     return { version, output }
   } finally {
     updating = false

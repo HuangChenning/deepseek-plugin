@@ -133,32 +133,55 @@ test('hides CLI details when the auth probe itself fails', async () => {
   assert.deepEqual(JSON.parse(response.body), { ok: false, error: '无法读取 MES 登录状态，请检查 mes 路径配置' })
 })
 
-test('reports the CLI version and update check', async () => {
+// 打开页面不应该悄悄访问外部更新服务器：默认只读本机版本。
+test('reads only the local version when no check was requested', async () => {
+  let checked = false
   const { handleCli } = createHandlers({
-    readCliStatus: async () => ({ version: '0.5.3', upToDate: true, output: 'mes is up to date: 0.5.3' }),
+    readCliInfo: async () => ({ version: '0.5.3' }),
+    readCliStatus: async () => { checked = true; return { version: '0.5.3', upToDate: true, output: '' } },
   })
   const response = makeResponse()
 
   await handleCli(makeRequest(), response)
 
   assert.equal(response.statusCode, 200)
+  assert.deepEqual(JSON.parse(response.body), { ok: true, version: '0.5.3' })
+  assert.equal(checked, false, '未点击检查更新时不应联网')
+})
+
+test('checks for updates only when check=1 is requested', async () => {
+  let checked = false
+  const { handleCli } = createHandlers({
+    readCliInfo: async () => ({ version: '0.5.3' }),
+    readCliStatus: async () => {
+      checked = true
+      return { version: '0.5.3', upToDate: false, output: 'a new version is available: 0.6.0' }
+    },
+  })
+  const response = makeResponse()
+  const request = makeRequest()
+  request.url = '/api/plugins/mes-plan-list/cli?check=1'
+
+  await handleCli(request, response)
+
+  assert.equal(checked, true)
   assert.deepEqual(JSON.parse(response.body), {
-    ok: true, version: '0.5.3', upToDate: true, output: 'mes is up to date: 0.5.3',
+    ok: true, version: '0.5.3', upToDate: false, output: 'a new version is available: 0.6.0',
   })
 })
 
-test('passes refresh=1 through so the user can force a fresh check', async () => {
-  const seen = []
-  const { handleCli } = createHandlers({
-    readCliStatus: async (options) => { seen.push(options.refresh); return { version: '0.5.3', upToDate: true, output: '' } },
-  })
+test('distinguishes a failed update check from an unreadable binary', async () => {
+  const failing = async () => { throw new Error('dial tcp: connection refused') }
+  const checkResponse = makeResponse()
+  const checkRequest = makeRequest()
+  checkRequest.url = '/api/plugins/mes-plan-list/cli?check=1'
+  await createHandlers({ readCliStatus: failing }).handleCli(checkRequest, checkResponse)
 
-  const request = makeRequest()
-  request.url = '/api/plugins/mes-plan-list/cli?refresh=1'
-  await handleCli(request, makeResponse())
-  await handleCli(makeRequest(), makeResponse())
+  const versionResponse = makeResponse()
+  await createHandlers({ readCliInfo: failing }).handleCli(makeRequest(), versionResponse)
 
-  assert.deepEqual(seen, [true, false])
+  assert.equal(JSON.parse(checkResponse.body).error, '检查更新失败，请稍后重试')
+  assert.equal(JSON.parse(versionResponse.body).error, '无法读取 mes 版本，请检查 mes 路径配置')
 })
 
 // 更新会替换正在使用的二进制；此刻放行查询会以难懂的方式失败。

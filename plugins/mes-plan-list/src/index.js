@@ -1,7 +1,7 @@
 import { queryPlans } from './plan-query.js'
 import { renderPage } from './page.js'
 import { readConfig, writeConfig } from './config.js'
-import { isUpdating, readAuthStatus, readMesVersion, readUpdateStatus, runMesUpdate } from './mes-cli.js'
+import { isUpdating, readAuthStatus, readCliVersion, readMesVersion, readUpdateStatus, runMesUpdate } from './mes-cli.js'
 
 const MAX_BODY_BYTES = 16 * 1024
 const JSON_CONTENT_TYPE = /^application\/json(?:\s*;|$)/i
@@ -59,6 +59,7 @@ export function createHandlers({
   readVersion = readMesVersion,
   readAuth = readAuthStatus,
   readCliStatus = readUpdateStatus,
+  readCliInfo = readCliVersion,
   updateCli = runMesUpdate,
   cliBusy = isUpdating,
 } = {}) {
@@ -150,11 +151,15 @@ export function createHandlers({
         writeJson(response, 405, { ok: false, error: '仅支持 GET 请求' }, { allow: 'GET' })
         return
       }
-      const refresh = request.url !== undefined && request.url.includes('refresh=1')
+      // 默认只读本机版本；只有显式 check=1（用户点了「检查更新」）才联网。
+      const check = request.url !== undefined && request.url.includes('check=1')
       try {
-        writeJson(response, 200, { ok: true, ...(await readCliStatus({ refresh })) })
+        writeJson(response, 200, { ok: true, ...(await (check ? readCliStatus() : readCliInfo())) })
       } catch {
-        writeJson(response, 502, { ok: false, error: '无法读取 mes 版本，请检查 mes 路径配置' })
+        writeJson(response, 502, {
+          ok: false,
+          error: check ? '检查更新失败，请稍后重试' : '无法读取 mes 版本，请检查 mes 路径配置',
+        })
       }
     },
     async handleCliUpdate(request, response) {

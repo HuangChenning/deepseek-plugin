@@ -82,8 +82,11 @@ update button. That failure direction is intentional: if MES changes the
 wording, the user sees one extra button, rather than being told they are
 current when they are not.
 
-The check runs on page load from a 6-hour in-process cache so opening the page
-does not hit the update server every time; **检查更新** forces a fresh check.
+**The update check runs only when the user clicks 检查更新.** Opening the page
+reads the installed version with `mes --version`, which is local; nothing
+contacts the update server unprompted. `GET …/cli` returns the version alone,
+and only `GET …/cli?check=1` runs the check.
+
 `mes update` replaces the binary in use, so queries are refused with 503 while
 one is running and a second update is refused with 409.
 

@@ -185,7 +185,7 @@ export function renderPage() {
 
       <hr class="rule">
       <h2>mes CLI 版本</h2>
-      <p class="hint">更新会替换本机的 mes 二进制，期间查询会被暂时拒绝。</p>
+      <p class="hint">检查更新会访问 mes 的更新服务器，只在点击时发生。更新会替换本机的 mes 二进制，期间查询会被暂时拒绝。</p>
       <div class="row">
         <span id="cli-version" class="version">读取中…</span>
         <button type="button" id="check-cli" class="ghost">检查更新</button>
@@ -358,43 +358,43 @@ export function renderPage() {
     const checkCli = document.querySelector('#check-cli')
     const updateCli = document.querySelector('#update-cli')
 
-    const renderCli = (payload) => {
-      cliVersion.textContent = 'mes ' + payload.version
-      cliOutput.textContent = payload.output
-      cliOutput.hidden = payload.output === ''
-      // 认不出「已是最新」时保留更新入口：宁可多显示一个按钮，也不要在 MES 改
-      // 文案后把有更新说成没更新。
-      updateCli.hidden = payload.upToDate
-      if (!payload.upToDate) {
-        cliFeedback.textContent = 'mes 可能有新版本，请看上方输出。'
-        cliFeedback.dataset.tone = 'error'
-      } else {
-        cliFeedback.textContent = ''
-        delete cliFeedback.dataset.tone
-      }
-    }
-
-    const loadCli = async (refresh) => {
-      checkCli.disabled = true
-      if (refresh) {
-        cliFeedback.textContent = '正在检查…'
-        delete cliFeedback.dataset.tone
-      }
+    // 打开页面只读本机版本，不联网；检查更新是用户主动点出来的动作。
+    const loadCliVersion = async () => {
       try {
-        const response = await fetch('/api/plugins/mes-plan-list/cli' + (refresh ? '?refresh=1' : ''))
+        const response = await fetch('/api/plugins/mes-plan-list/cli')
         const payload = await response.json()
         if (!response.ok || !payload.ok) throw new Error(payload.error || '无法读取 mes 版本')
-        renderCli(payload)
+        cliVersion.textContent = 'mes ' + payload.version
       } catch (error) {
         cliVersion.textContent = 'mes 版本未知'
         cliFeedback.textContent = error.message || '无法读取 mes 版本'
         cliFeedback.dataset.tone = 'error'
-      } finally {
-        checkCli.disabled = false
       }
     }
 
-    checkCli.addEventListener('click', () => loadCli(true))
+    checkCli.addEventListener('click', async () => {
+      checkCli.disabled = true
+      cliFeedback.textContent = '正在检查…'
+      delete cliFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cli?check=1')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '检查更新失败')
+        cliVersion.textContent = 'mes ' + payload.version
+        cliOutput.textContent = payload.output
+        cliOutput.hidden = payload.output === ''
+        // 认不出「已是最新」时保留更新入口：宁可多显示一个按钮，也不要在 MES 改
+        // 文案后把有更新说成没更新。
+        updateCli.hidden = payload.upToDate
+        cliFeedback.textContent = payload.upToDate ? '已是最新版本。' : 'mes 可能有新版本，请看上方输出。'
+        cliFeedback.dataset.tone = payload.upToDate ? 'ok' : 'error'
+      } catch (error) {
+        cliFeedback.textContent = error.message || '检查更新失败'
+        cliFeedback.dataset.tone = 'error'
+      } finally {
+        checkCli.disabled = false
+      }
+    })
 
     updateCli.addEventListener('click', async () => {
       updateCli.disabled = true
@@ -425,7 +425,7 @@ export function renderPage() {
 
     loadConfig()
     refreshAuth()
-    loadCli(false)
+    loadCliVersion()
   </script>
 </body>
 </html>`

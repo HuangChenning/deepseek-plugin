@@ -129,12 +129,13 @@ dshmarket 都做了，且它对 npm 更新会校验 pnpm 实际落盘的版本�
 **依赖**：需求 1。
 
 **落地情况**：`mes-cli.js` 加了 `isUpToDate`（导出的纯函数，便于测试这条脆弱
-判断）、`readUpdateStatus`（6 小时进程内缓存，`?refresh=1` 强制重查）和
-`runMesUpdate`；路由 `GET …/cli` 与 `POST …/cli/update`。更新期间查询返回 503、
-重复更新返回 409，更新后重新读取版本而不是沿用旧值。
+判断）、`readCliVersion`（只读本机版本，不联网）、`readUpdateStatus`（联网检查）
+和 `runMesUpdate`；路由 `GET …/cli` 与 `POST …/cli/update`。更新期间查询返回
+503、重复更新返回 409，更新后重新读取版本而不是沿用旧值。
 
-页面加载时用缓存做一次检查（不是每次都打更新服务器），有更新才显示「更新 mes」
-按钮。若需要改成完全手动检查或落盘缓存，改 `UPDATE_CHECK_TTL_MS` 一处即可。
+**检查更新只在用户点击时发生**（已定，2026-09-02）：打开页面只跑本地的
+`mes --version`，不联网；`GET …/cli` 只返回版本，`?check=1` 才执行
+`mes update --check`。因此没有缓存——用户点了就是想要当下的结果。
 
 ## 5. SQLite 本地缓存与同步
 
