@@ -93,7 +93,6 @@ Leave the status field empty to include all statuses.
 ├── plugins/
 │   └── mes-plan-list/      # Package, patch, source, tests, and usage notes
 ├── scripts/                # Profile registration
-├── docs/                   # Plugin conventions and design notes
 ├── CHANGELOG.md
 ├── package.json
 └── pnpm-workspace.yaml

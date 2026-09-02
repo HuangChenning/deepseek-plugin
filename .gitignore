@@ -5,9 +5,12 @@
 *.db-shm
 *.db-wal
 
-# 本地 agent 指令文件：约定同步更新但不提交（见 docs/backlog.md）。
+# 本地 agent 指令文件：约定同步更新但不提交。
 AGENTS.md
 CLAUDE.md
+
+# 规划与交接文档只在本地保留，不上传。
+docs/
 
 node_modules/
 
