@@ -213,6 +213,7 @@ export function renderPage() {
     th.pick, td.pick { width: 36px; padding-left: 14px; padding-right: 0; }
     .pick input { min-width: 0; width: 16px; height: 16px; padding: 0; margin: 0; border-radius: 4px; accent-color: var(--accent); cursor: pointer; }
     .pick input:disabled { opacity: 0.3; cursor: not-allowed; }
+    .mail-actionbar .feedback { margin: 0; font-size: 12px; color: var(--muted); }
     td.id, td.date { color: var(--muted); }
     td.num { text-align: right; }
 
@@ -419,6 +420,7 @@ export function renderPage() {
       <span id="mail-selected-count">已选 0 条</span>
       <button type="button" id="mail-clear-selection" class="ghost">清空选择</button>
       <button type="button" id="mail-preview-button">生成邮件预览</button>
+      <span id="mail-feedback" class="feedback" role="status"></span>
     </div>
     <div id="results"></div>
     <section id="mail-preview" class="panel">
@@ -1218,8 +1220,12 @@ export function renderPage() {
       renderPlans(lastPlans)
     })
 
+    // 预览失败时 #mail-preview 仍是隐藏的，所以反馈必须落在始终可见的操作栏里，
+    // 否则「缺少映射」「计划已结束」这类拦截对用户就是一次静默的无反应。
+    const mailFeedback = document.querySelector('#mail-feedback')
+
     document.querySelector('#mail-preview-button').addEventListener('click', () => {
-      exclusive(mailResult, '正在核对计划状态并生成预览…', async () => {
+      exclusive(mailFeedback, '正在核对计划状态并生成预览…', async () => {
         const payload = await mailJson('/preview', postJson('', { planIds: [...selectedPlanIds] }))
         mailToken = payload.token
         renderMailPreview(payload.groups)

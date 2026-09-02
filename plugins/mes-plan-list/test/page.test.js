@@ -246,3 +246,22 @@ test('a non-selectable row shows a disabled checkbox rather than an empty cell',
   const disabledBranch = cell.slice(cell.indexOf('disabled'))
   assert.doesNotMatch(disabledBranch, /data-pick/)
 })
+
+test('preview failures report into an element that is visible at the time', () => {
+  const html = renderPage()
+  const script = html.split('<script>')[1]
+
+  // #mail-result 位于 #mail-preview 内部，而该面板要等预览成功才显示；
+  // 把失败反馈写进去，等于让「缺少映射」「计划已结束」这类拦截静默无声。
+  const previewPanelStart = html.indexOf('<section id="mail-preview"')
+  const previewPanel = html.slice(previewPanelStart, html.indexOf('</section>', previewPanelStart))
+  assert.match(previewPanel, /id="mail-result"/, '前提：结果行确实在预览面板内')
+
+  const actionBarStart = html.indexOf('id="mail-actionbar"')
+  const actionBar = html.slice(actionBarStart, html.indexOf('</div>', actionBarStart))
+  assert.match(actionBar, /id="mail-feedback"/, '操作栏需要一个始终可见的反馈位')
+
+  const handler = script.slice(script.indexOf("#mail-preview-button"))
+  const call = handler.slice(0, handler.indexOf('\n', handler.indexOf('exclusive(')))
+  assert.match(call, /exclusive\(mailFeedback/, '预览反馈必须写到操作栏，而不是尚未显示的面板')
+})
