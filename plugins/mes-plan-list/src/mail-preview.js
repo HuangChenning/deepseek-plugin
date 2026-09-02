@@ -75,6 +75,10 @@ export function buildMailPreview({ profileKey, planIds, plans, mappings, setting
   // MES 会给同一个人新建账号，ID 变而姓名不变（这正是同一人有多个 executorId 的来源）。
   // 只按 ID 匹配的话，映射会在换号时静默失效，用户得重新导入才知道。按 ID 找不到时
   // 回退到姓名，让映射跟着人走而不是跟着账号走。
+  //
+  // 这条回退成立的前提：本组织内不存在同名的不同员工——真有同名时会在姓名本身上
+  // 做区分（用户已确认）。若将来该前提不再成立，回退必须收紧为「仅姓名唯一时回退」，
+  // 否则两个同名的人会共用一个收件地址。
   const mappingByName = new Map()
   for (const mapping of mappings ?? []) {
     const name = String(mapping?.executorName ?? '').trim()
