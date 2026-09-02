@@ -32,6 +32,20 @@ All notable changes to this project will be documented in this file.
 - All mail data is scoped to the MES account that is logged in; switching
   accounts shows a different, isolated set.
 
+### Fixed
+
+- A query whose date range has no work-hour cache now fills that cache
+  automatically, so the table shows a total or `0` instead of `—`; cached
+  ranges remain fast.
+- Importing one executor name that resolves to historical MES account IDs no
+  longer produces a false duplicate-name error, and import errors retain their
+  Excel row number when one exists.
+- Mail previews now stay near the selection controls, render plan types in
+  Chinese with date-only end dates, and use compact, consistent text styling.
+- The plan table now uses a shared column-width budget within a wider page
+  shell, keeping the status column visible on desktop screens while retaining
+  container-scoped horizontal scrolling on narrow screens.
+
 ## [0.4.0] - 2026-09-02
 
 ### Added

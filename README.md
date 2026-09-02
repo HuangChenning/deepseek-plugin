@@ -92,11 +92,12 @@ history — lives in a **separate** database at
 it with it. The SMTP password is stored only in the macOS Keychain. Neither is
 part of this repository.
 
-**同步最新数据 also fetches work-hour records, which is why it is slow.** They
-outnumber plans by roughly an order of magnitude, so a month takes about a
-minute. Hours are fetched only for the queried date range, and a plain query
-never fetches them: it shows the hours already cached, or `—` when there are
-none.
+Hours are fetched only for the queried date range. **同步最新数据 forces a
+work-hour refresh, which is why it is slow.** Work-hour records outnumber plans
+by roughly an order of magnitude, so a month takes about a minute. If a plain
+query has no cached hours for its date range, the plugin fetches that range once
+and caches it; repeat queries read the cache. The table therefore shows an
+actual total or `0`, rather than `—`.
 
 ## Filters
 
