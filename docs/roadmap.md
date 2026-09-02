@@ -1,0 +1,181 @@
+# 需求规划
+
+最后更新：2026-09-02
+
+本文记录 `mes-plan-list` 的五项后续需求、各自的实现方案、依赖关系与待决问题。
+下面标注「已实测」的结论都在本机 DSH 0.1.1-rc.2 / mes 0.5.3 上验证过。
+
+## 先决条件：发布
+
+需求 3 说「其他人也会使用」，这项前置工作因此不只服务于需求 3——它决定了插件
+能否被别人安装，也决定了 dshmarket 能否更新它。
+
+现状：`plugins/mes-plan-list/package.json` 是 `private: true` 且没有 `version`，
+安装方式是本地 `link:`。这种形态无法被任何更新机制识别。
+
+需要决定并执行：
+
+- 发布渠道：npm 公开包，还是 GitHub Release？dshmarket 两者都支持，npm 更快
+  （它优先用 npm，其次用作者提供的 Release tarball，最后才是完整仓库下载）。
+- 版本策略与 `CHANGELOG.md` 的 `[Unreleased]` 归档（backlog 里已有的未决项）。
+- 收录进 [awesome-dsh-plugin](https://awesome-dsh-plugin.com) 注册表——dshmarket
+  **只允许安装注册表内的源**，未收录就无法一键安装/更新。
+
+在这项完成前，需求 3 无法落地；需求 1、2、4、5 不受影响。
+
+## 1. mes CLI 路径配置
+
+用户在插件页面内配置 mes 可执行文件的绝对路径。这同时消除已记录的 PATH 风险
+（`execFile('mes', …)` 依赖 PATH，GUI/launchd 启动的 DSH 可能解析不到）。
+
+**方案**
+
+- 存储：Host 侧 `~/.dsh/storages/mes-plan-list/config.json`。同 profile 内其他
+  插件的惯例（如 dsh-cost-meter 用 `~/.dsh/storages/cost-meter/ledger.json`）。
+  不放浏览器 localStorage——Host 执行 CLI 时读不到。
+- 接口：`GET /api/plugins/mes-plan-list/config`、`PUT …/config`。
+- 解析顺序：配置里的绝对路径 → 回落到 PATH 里的 `mes`。
+- 页面：现有页面加一个可折叠的「设置」区，不使用 DSH 的设置面板。用户要求的就是
+  「插件的管理页面」，而 DSH 设置卡片需要 React 与 `ctx.settingsScope`，我们的
+  client 半边目前是零依赖纯 DOM，不值得为此引入打包器。
+
+**安全（必须做，不是可选）**
+
+这个字段让浏览器输入决定 Host 执行哪个二进制，等同于任意代码执行。保存时必须：
+
+- 只接受绝对路径，拒绝相对路径、`~`、shell 元字符；
+- 校验文件存在且可执行；
+- 执行 `<path> --version` 并要求输出匹配 `mes version <semver>`，否则拒绝保存。
+
+写入仍走 `execFile`，绝不拼 shell。
+
+**工作量**：小。Host 侧一个配置模块 + 两个路由，页面一个设置区。
+
+## 2. 登录状态检测
+
+**方案**
+
+`mes -o json auth status` 返回结构化 JSON（已实测）：
+
+```json
+{ "schemaVersion": 1, "activeProfile": "default", "status": "ok",
+  "tokenValid": true, "account": "…" }
+```
+
+- 接口：`GET /api/plugins/mes-plan-list/auth`，转译为 `{ok, loggedIn, account}`。
+- 页面加载时调用一次，未登录时在查询表单上方显示提示条，并给出需要用户自己在
+  终端执行的命令（`mes auth login`）。查询按钮保持可用但会失败得更明确。
+- **不代替用户登录**：登录涉及凭据输入，插件不应经手密码。提示 + 让用户自己执行。
+
+**依赖**：需求 1（路径解析共用）。可与需求 1 同批实现。
+
+**工作量**：小。
+
+## 3. 插件自更新
+
+**不要自建 GitHub 更新器。** dshmarket（本 profile 已装，1.39.0）已经提供了
+版本化的同源更新 API，本机实测可用：
+
+```
+GET /dsh-market/api/v1/capabilities
+→ {"stability":"beta","marketVersion":"1.39.0","profile":"web",
+   "features":{"check":true,"update":true,"progress":true,"rollback":true,"restart":true},
+   "restart":{"supported":true,"managedBy":"market"}, "endpoints":{…}}
+```
+
+自建更新器要自己处理 pnpm、profile 写入、版本校验、失败回滚和重启——这些
+dshmarket 都做了，且它对 npm 更新会校验 pnpm 实际落盘的版本，能挡住降级和镜像
+滞后（`DOWNGRADE_DETECTED` / `RESOLVED_VERSION_MISMATCH`）。
+
+**方案**
+
+页面设置区内加更新块，流程：
+
+1. `GET /dsh-market/api/v1/capabilities` —— 拿不到或 `features.update` 为 false
+   就整块隐藏（用户可能没装 dshmarket）。
+2. `GET /dsh-market/api/v1/updates?name=mes-plan-list` 显示当前版本与目标版本。
+3. `POST /dsh-market/api/v1/updates` 得到 `operationId`（HTTP 202）。
+4. 轮询 `GET /dsh-market/api/v1/operations?operationId=…` 直到终态，按返回的
+   `refreshRequired` / `restartRequired` 提示用户；`restart.supported` 为 false
+   时必须隐藏重启按钮。
+
+**风险**
+
+- API 自述 `stability: "beta"`，字段形状可能变。必须读 `capabilities.stability`
+  和 `features` 再决定显示什么，不要硬编码假设。
+- 依赖上面的「先决条件：发布」。未发布前这一块只能显示「本地开发版，不可更新」。
+
+**工作量**：中。协议直白，但要写完整的状态机与失败呈现。
+
+## 4. mes CLI 更新检测与更新
+
+**方案**
+
+- 检测：`mes update --check`（已实测存在）。
+- 更新：`mes update`。页面提供按钮。
+
+**坑（已实测）**
+
+- `mes update --check` **只有文本输出**，`-o json` 对它不生效——`mes -o json
+  update --check` 与不加 `-o json` 输出完全相同（`✓ mes is up to date: 0.5.3`）。
+  因此只能解析文本，这是脆弱点：MES 改文案就会失效。
+  缓解：用 `mes --version`（输出 `mes version 0.5.3`）拿本地版本作为可靠事实，
+  把 `--check` 的输出原样呈现给用户，而不是解析出结构再做判断。
+- `mes update --check` 默认网络超时 30s，无网时会挂满。必须自己设更短超时。
+- `mes update` 会替换正在使用的二进制。更新期间必须禁用查询按钮并串行化，避免
+  一边替换一边有查询在跑。
+
+**依赖**：需求 1。
+
+**工作量**：小到中。
+
+## 5. SQLite 本地缓存与同步
+
+这是五项里最大的一项，而且会改变插件的性质：从「只读直通」变成「持有本地状态
+的同步器」。需要先把语义定清楚再动手。
+
+**可行性**：Node 24 内置 `node:sqlite`（`DatabaseSync`，已实测可用），无需任何
+外部依赖，不违反「两个插件之前不引入共享抽象」的约定。
+
+**必须先澄清的问题：「增量」在这里指什么？**
+
+`mes plan list` 的 flags 里**没有**按修改时间过滤的参数（只有 `--start-date`、
+`--end-date`、`--status`、`--company-id`、`--executor-id` 等业务字段）。返回的行
+里有 `createdTime` 和 `externalLastModifyTime`，但那是数据内容，不是可用的查询
+游标。
+
+因此服务端不支持真正的增量拉取。能做的是：
+
+- **全量同步**：按一个日期窗口整段重取，覆盖写入本地表。已实测全年 958 条约
+  5 次调用、7 秒，成本可接受。
+- **「增量」的实际含义**只能是「只重取最近 N 天的窗口」，仍是按窗口全量重取，
+  只是窗口更小。命名上不要叫增量，避免误导。
+
+如果 MES 后续提供了按 mtime 过滤的接口，再实现真正的增量。
+
+**其余待决**
+
+- 页面默认读缓存还是读实时？读缓存必须显著显示「数据同步于 X」，否则用户会拿
+  陈旧数据做判断。建议：默认读缓存 + 明确的同步时间 + 一键刷新。
+- 同步触发方式：手动按钮，还是后台定时？后台定时会在用户无感知时打 MES。
+- 删除检测：某个计划在 MES 侧被删除后，窗口重取时本地要能识别并清理，否则会
+  留下幽灵行。按窗口整体替换（先删窗口内旧行再插入）可以解决。
+- 数据落盘位置与体积：`~/.dsh/storages/mes-plan-list/plans.db`。
+
+**工作量**：大。建议拆成「全量同步 + 缓存读」和「窗口刷新策略」两步走。
+
+## 建议实施顺序
+
+1. **需求 1 + 2**（一批）：小、互相耦合、直接消除已知的 PATH 风险，且是 4 的前置。
+2. **需求 4**：依赖 1，独立可交付。
+3. **先决条件：发布**：需要你先定发布渠道与版本策略；它阻塞 3，也是「其他人使用」
+   的前提。
+4. **需求 3**：发布完成后接 dshmarket update API。
+5. **需求 5**：最大，且需要先确认上面「增量」的定义与缓存/实时的取舍。
+
+## 需要你拍板的三件事
+
+1. 发布渠道：npm 公开包，还是 GitHub Release？（决定第 3 步怎么做）
+2. 需求 5 的「增量」：接受「按更小日期窗口重取」这个定义吗？MES 不支持按修改
+   时间过滤，真正的增量做不了。
+3. 页面默认数据源：缓存优先（快、可能陈旧）还是实时优先（慢、总是新）？
