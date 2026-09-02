@@ -3,6 +3,7 @@ import { renderPage } from './page.js'
 import { readConfig, writeConfig } from './config.js'
 import { isUpdating, readAuthStatus, readCliVersion, readMesVersion, readUpdateStatus, runMesUpdate } from './mes-cli.js'
 import { PlanStore } from './plan-store.js'
+import { checkPluginUpdate, pullPluginUpdate, readPluginVersion } from './self-update.js'
 
 /** 进程内共用一个 store；懒创建让没查过的机器上不出现 .db 文件。 */
 let sharedStore
@@ -91,6 +92,9 @@ export function createHandlers({
   updateCli = runMesUpdate,
   cliBusy = isUpdating,
   store = defaultStore,
+  readPlugin = readPluginVersion,
+  checkPlugin = checkPluginUpdate,
+  updatePlugin = pullPluginUpdate,
 } = {}) {
   return {
     async handlePage(request, response) {
@@ -174,6 +178,33 @@ export function createHandlers({
         writeJson(response, 502, { ok: false, error: '无法读取 MES 登录状态，请检查 mes 路径配置' })
       }
     },
+    async handlePlugin(request, response) {
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { ok: false, error: '仅支持 GET 请求' }, { allow: 'GET' })
+        return
+      }
+      // 与 mes 那块一致：打开页面只读本地版本，联网检查要用户点。
+      const check = request.url !== undefined && request.url.includes('check=1')
+      try {
+        writeJson(response, 200, { ok: true, ...(await (check ? checkPlugin() : readPlugin())) })
+      } catch (error) {
+        writeJson(response, 502, {
+          ok: false,
+          error: check ? (error.message || '检查插件更新失败') : '无法读取插件版本，仓库可能不是 git 工作区',
+        })
+      }
+    },
+    async handlePluginUpdate(request, response) {
+      if (request.method !== 'POST') {
+        writeJson(response, 405, { ok: false, error: '仅支持 POST 请求' }, { allow: 'POST' })
+        return
+      }
+      try {
+        writeJson(response, 200, { ok: true, ...(await updatePlugin()) })
+      } catch (error) {
+        writeJson(response, 502, { ok: false, error: error.message || '插件更新失败' })
+      }
+    },
     async handleCache(request, response) {
       if (request.method === 'GET') {
         try {
@@ -231,7 +262,10 @@ export function createHandlers({
 export const inject = ['webServer']
 
 export function apply(ctx) {
-  const { handlePage, handleQuery, handleConfig, handleAuth, handleCli, handleCliUpdate, handleCache } = createHandlers()
+  const {
+    handlePage, handleQuery, handleConfig, handleAuth,
+    handleCli, handleCliUpdate, handleCache, handlePlugin, handlePluginUpdate,
+  } = createHandlers()
   ctx.webServer.register({ kind: 'exact', path: '/plugins/mes-plan-list', handler: handlePage })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/query', handler: handleQuery })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/config', handler: handleConfig })
@@ -239,4 +273,6 @@ export function apply(ctx) {
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/cli', handler: handleCli })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/cli/update', handler: handleCliUpdate })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/cache', handler: handleCache })
+  ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/plugin', handler: handlePlugin })
+  ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/plugin/update', handler: handlePluginUpdate })
 }

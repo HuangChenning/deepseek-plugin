@@ -179,6 +179,16 @@ export function renderPage() {
     <p id="auth-banner" class="banner" role="status"></p>
 
     <section id="settings" class="panel">
+      <h2>插件版本</h2>
+      <p class="hint">更新会在本机仓库执行 <code>git pull --ff-only</code>，用你已有的 git 凭据；工作区有未提交改动时会拒绝。更新后需重启 DSH 才生效。</p>
+      <div class="row">
+        <span id="plugin-version" class="version">读取中…</span>
+        <button type="button" id="check-plugin" class="ghost">检查更新</button>
+        <button type="button" id="update-plugin" hidden>更新插件</button>
+      </div>
+      <p id="plugin-feedback" class="feedback" role="status"></p>
+
+      <hr class="rule">
       <h2>mes CLI 路径</h2>
       <p class="hint">留空则使用 PATH 中的 <code>mes</code>。填绝对路径可解决 DSH 从图形界面启动时找不到 mes 的情况。保存前会执行该路径的 <code>--version</code> 确认它确实是 mes。</p>
       <div class="row">
@@ -510,10 +520,81 @@ export function renderPage() {
       }
     })
 
+    const pluginVersion = document.querySelector('#plugin-version')
+    const pluginFeedback = document.querySelector('#plugin-feedback')
+    const checkPlugin = document.querySelector('#check-plugin')
+    const updatePlugin = document.querySelector('#update-plugin')
+
+    const showPluginVersion = (payload) => {
+      pluginVersion.textContent = payload.branch + ' @ ' + payload.commit
+        + (payload.at ? '（' + payload.at.slice(0, 10) + '）' : '')
+    }
+
+    // 打开页面只读本地 git 信息，不联网。
+    const loadPluginVersion = async () => {
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/plugin')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '无法读取插件版本')
+        showPluginVersion(payload)
+      } catch (error) {
+        pluginVersion.textContent = '插件版本未知'
+        pluginFeedback.textContent = error.message || '无法读取插件版本'
+        pluginFeedback.dataset.tone = 'error'
+      }
+    }
+
+    checkPlugin.addEventListener('click', async () => {
+      checkPlugin.disabled = true
+      pluginFeedback.textContent = '正在检查…'
+      delete pluginFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/plugin?check=1')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '检查更新失败')
+        showPluginVersion(payload)
+        updatePlugin.hidden = payload.upToDate
+        pluginFeedback.textContent = payload.upToDate
+          ? '已是最新版本。'
+          : '有新版本（远程 ' + payload.remoteCommit + '），可以更新。'
+        pluginFeedback.dataset.tone = payload.upToDate ? 'ok' : 'error'
+      } catch (error) {
+        pluginFeedback.textContent = error.message || '检查更新失败'
+        pluginFeedback.dataset.tone = 'error'
+      } finally {
+        checkPlugin.disabled = false
+      }
+    })
+
+    updatePlugin.addEventListener('click', async () => {
+      updatePlugin.disabled = true
+      checkPlugin.disabled = true
+      pluginFeedback.textContent = '正在更新…'
+      delete pluginFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/plugin/update', { method: 'POST' })
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '插件更新失败')
+        showPluginVersion(payload)
+        updatePlugin.hidden = true
+        pluginFeedback.textContent = payload.changed
+          ? '已更新到 ' + payload.commit + '，请重启 DSH 使新版本生效。'
+          : '已是最新版本，无需更新。'
+        pluginFeedback.dataset.tone = 'ok'
+      } catch (error) {
+        pluginFeedback.textContent = error.message || '插件更新失败'
+        pluginFeedback.dataset.tone = 'error'
+      } finally {
+        updatePlugin.disabled = false
+        checkPlugin.disabled = false
+      }
+    })
+
     loadConfig()
     refreshAuth()
     loadCliVersion()
     loadCache()
+    loadPluginVersion()
   </script>
 </body>
 </html>`

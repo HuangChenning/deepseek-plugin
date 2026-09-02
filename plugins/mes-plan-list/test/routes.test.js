@@ -237,6 +237,72 @@ test('hides CLI details when an update fails', async () => {
   assert.match(JSON.parse(response.body).error, /mes 更新失败/)
 })
 
+// 与 mes CLI 那块同样的原则：打开页面只读本地 git 信息，联网检查要用户点。
+test('reads only the local plugin version when no check was requested', async () => {
+  let checked = false
+  const { handlePlugin } = createHandlers({
+    readPlugin: async () => ({ commit: 'abc1234', branch: 'main', at: '2026-09-02T00:00:00Z', subject: 'x' }),
+    checkPlugin: async () => { checked = true; return {} },
+  })
+  const response = makeResponse()
+
+  await handlePlugin(makeRequest(), response)
+
+  assert.equal(JSON.parse(response.body).commit, 'abc1234')
+  assert.equal(checked, false, '未点击检查更新时不应联网')
+})
+
+test('reports an available plugin update when check=1 is requested', async () => {
+  const { handlePlugin } = createHandlers({
+    checkPlugin: async () => ({ commit: 'abc1234', branch: 'main', upToDate: false, remoteCommit: 'def5678' }),
+  })
+  const response = makeResponse()
+  const request = makeRequest()
+  request.url = '/api/plugins/mes-plan-list/plugin?check=1'
+
+  await handlePlugin(request, response)
+
+  const payload = JSON.parse(response.body)
+  assert.equal(payload.upToDate, false)
+  assert.equal(payload.remoteCommit, 'def5678')
+})
+
+// 更新失败的原因要能被用户看懂并据此行动（例如先提交本地改动），不能吞成通用错误。
+test('surfaces why an update was refused', async () => {
+  const { handlePluginUpdate } = createHandlers({
+    updatePlugin: async () => { throw new Error('仓库有未提交的改动，请先提交或还原后再更新') },
+  })
+  const response = makeResponse()
+
+  await handlePluginUpdate(makeRequest({ method: 'POST' }), response)
+
+  assert.equal(response.statusCode, 502)
+  assert.equal(JSON.parse(response.body).error, '仓库有未提交的改动，请先提交或还原后再更新')
+})
+
+test('reports the new commit after a successful plugin update', async () => {
+  const { handlePluginUpdate } = createHandlers({
+    updatePlugin: async () => ({ commit: 'def5678', branch: 'main', changed: true, previousCommit: 'abc1234' }),
+  })
+  const response = makeResponse()
+
+  await handlePluginUpdate(makeRequest({ method: 'POST' }), response)
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(JSON.parse(response.body),
+    { ok: true, commit: 'def5678', branch: 'main', changed: true, previousCommit: 'abc1234' })
+})
+
+test('rejects plugin update methods other than POST', async () => {
+  const { handlePluginUpdate } = createHandlers()
+  const response = makeResponse()
+
+  await handlePluginUpdate(makeRequest({ method: 'GET' }), response)
+
+  assert.equal(response.statusCode, 405)
+  assert.equal(response.headers.allow, 'POST')
+})
+
 test('registers the page, query, config, auth, CLI, and cache routes', async () => {
   const { apply } = await import('../src/index.js')
   const routes = []
@@ -251,5 +317,7 @@ test('registers the page, query, config, auth, CLI, and cache routes', async () 
     '/api/plugins/mes-plan-list/cli',
     '/api/plugins/mes-plan-list/cli/update',
     '/api/plugins/mes-plan-list/cache',
+    '/api/plugins/mes-plan-list/plugin',
+    '/api/plugins/mes-plan-list/plugin/update',
   ])
 })

@@ -96,6 +96,25 @@ the cache actually spans a wide range. **清空缓存** resets that span.
 For scale: a year is ~950 plans, 5 CLI calls, ~7s; ten years is ~8000 plans,
 ~85s, 13MB.
 
+## Updating the plugin
+
+The settings panel shows the checked-out branch and commit, checks the remote
+for newer commits on click, and can update in place.
+
+Updating runs `git pull --ff-only` in the local repository. This works with a
+**private** repository without the plugin handling any credentials: whoever runs
+it already has access, and git uses their existing credentials. That is why this
+does not go through dshmarket or npm, both of which need a publicly installable
+source.
+
+The browser cannot influence what gets pulled — remote, branch, and ref are
+never taken from the request; it is always the current branch. A dirty working
+tree is refused rather than overwritten, and `--ff-only` means a diverged branch
+fails loudly instead of auto-merging into a state nobody reviewed.
+
+**Restart DSH after updating** for the new code to load. If a future version
+adds a runtime dependency, run `pnpm install` too.
+
 ## Settings
 
 The page's **设置** panel configures the absolute path to the `mes` binary.

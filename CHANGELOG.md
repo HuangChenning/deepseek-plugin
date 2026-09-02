@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   and opens the plugin page over the center column.
 - `pnpm register`, which registers every workspace plugin with a DSH profile
   without `dsh plugin add`'s full-profile pnpm install.
+- Plugin self-update from the settings panel: shows the checked-out branch and
+  commit, checks the remote on demand, and updates with `git pull --ff-only`.
+  Works with a private repository without the plugin handling credentials.
 - Settings panel for the `mes` binary path, stored host-side. A submitted path
   is verified with `<path> --version` before it is stored, so an arbitrary
   executable cannot be configured as `mes`.

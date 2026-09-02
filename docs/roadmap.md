@@ -5,24 +5,28 @@
 本文记录 `mes-plan-list` 的五项后续需求、各自的实现方案、依赖关系与待决问题。
 下面标注「已实测」的结论都在本机 DSH 0.1.1-rc.2 / mes 0.5.3 上验证过。
 
-## 先决条件：发布
+## 先决条件：发布（已不再阻塞，见需求 3）
 
-需求 3 说「其他人也会使用」，这项前置工作因此不只服务于需求 3——它决定了插件
-能否被别人安装，也决定了 dshmarket 能否更新它。
+> 2026-09-02 决定仓库保持 private，插件更新改走 git（见需求 3），因此本节的发布
+> 与注册表收录**不再是任何需求的前置条件**。仅在将来决定公开仓库时才需要。
+>
+> 涉密审查已做过一轮（工作树 + 全部 git 历史 + 提交信息）：无密钥、无内网地址、
+> 无客户名或人名，历史上也没有数据文件误入。唯一一处是测试里曾用真实 MES 账号
+> 昵称当 fixture，当前代码已改为中性值，但那两个提交仍留在 git 历史里——若转公开
+> 且要求彻底清除，需要 rewrite history。另外页面会显示客户名、合同名、执行人姓名，
+> 公开时 README 配图不要用真实查询结果。
 
-现状：`plugins/mes-plan-list/package.json` 是 `private: true` 且没有 `version`，
-安装方式是本地 `link:`。这种形态无法被任何更新机制识别。
+若将来决定公开仓库并走 dshmarket，需要做的是：
 
-需要执行：
-
-- **发布渠道：GitHub Release**（已定）。dshmarket 支持作者提供的预构建 Release
-  tarball，安装时优先级排在 npm 之后、完整仓库下载之前。据此需要给包加
-  `version` 字段，并建立打 tag → 出 Release 的流程。
+- 发布渠道 **GitHub Release**（曾定）。dshmarket 支持作者提供的预构建 Release
+  tarball，安装优先级排在 npm 之后、完整仓库下载之前；需要给包加 `version`
+  字段并建立打 tag → 出 Release 的流程。
 - 版本策略与 `CHANGELOG.md` 的 `[Unreleased]` 归档（backlog 里已有的未决项）。
 - 收录进 [awesome-dsh-plugin](https://awesome-dsh-plugin.com) 注册表——dshmarket
-  **只允许安装注册表内的源**，未收录就无法一键安装/更新。
+  **只允许安装注册表内的源**。
 
-在这项完成前，需求 3 无法落地；需求 1、2、4、5 不受影响。
+现状 `plugins/mes-plan-list/package.json` 是 `private: true` 且没有 `version`，
+安装方式是本地 `link:`；这对 git 更新路线没有影响。
 
 ## 1. mes CLI 路径配置 ✅ 已完成（2026-09-02）
 
@@ -72,7 +76,28 @@
 
 **工作量**：小。
 
-## 3. 插件自更新
+## 3. 插件自更新 ✅ 已完成（2026-09-02，改用 git 方案）
+
+**最终决策：不走 dshmarket，改为页面上的 git 手动更新。**
+
+原因是仓库保持 private。dshmarket 只能安装 awesome-dsh-plugin 注册表里的源，
+private 仓库的 Release tarball 它匿名拿不到，所以那条路要求仓库公开。而使用者
+本来就有这个 private 仓库的访问权限，git 会用他们本机既有的凭据——插件因此完全
+不需要经手 token，认证障碍在 git 路线上根本不存在。
+
+**落地情况**：`src/self-update.js` + 路由 `GET …/plugin`（本地版本）、
+`GET …/plugin?check=1`（`git ls-remote` 查远程，只读不动本地 .git）、
+`POST …/plugin/update`（`git pull --ff-only`）。页面设置面板显示分支与 commit，
+点击才联网检查，有新版本才出现「更新插件」按钮。
+
+**安全**：浏览器无法影响拉取内容——remote、分支、ref 都不接受请求参数，固定用
+当前分支；工作区不干净时拒绝而不是覆盖；`--ff-only` 让分叉时明确失败，而不是
+自动合并出一个没人审过的状态。
+
+**局限**：更新后需手动重启 DSH 才生效（插件代码已在运行中的进程里）。若将来
+仓库转公开，下面这套 dshmarket 方案仍然可用。
+
+## 3-备选. 走 dshmarket 的方案（仓库公开才可用）
 
 **不要自建 GitHub 更新器。** dshmarket（本 profile 已装，1.39.0）已经提供了
 版本化的同源更新 API，本机实测可用：
@@ -240,9 +265,8 @@ endDate <= Y` 的计划，不是区间重叠。以计划 16160（07-13 → 07-25
    `/api/plugins/mes-plan-list/config`（GET/PUT）与 `…/auth`（GET），页面加了设置
    面板与登录横幅。已消除 backlog 里记的 PATH 风险。
 2. ~~**需求 4**~~：已完成。见上节的落地情况。
-3. **先决条件：发布**：需要你先定发布渠道与版本策略；它阻塞 3，也是「其他人使用」
-   的前提。
-4. **需求 3**：发布完成后接 dshmarket update API。
+3. ~~**先决条件：发布**~~：已不再需要——仓库保持 private，更新走 git。
+4. ~~**需求 3**~~：已完成，改用 git 手动更新（不走 dshmarket，仓库保持 private）。
 5. ~~**需求 5**~~：已完成。见上节的落地情况。
 
 ## 已定的三项决策（2026-09-02）
