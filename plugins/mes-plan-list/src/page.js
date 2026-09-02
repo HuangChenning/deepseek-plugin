@@ -2,8 +2,6 @@
  * 插件页面。既能独立访问（跟随系统明暗），也能嵌在 DSH 中央列的 iframe 里，
  * 由 client.js 通过 postMessage 推送 DSH 的明暗主题。
  */
-import { PAGE_SIZE } from './plan-query.js'
-
 export function renderPage() {
   return `<!doctype html>
 <html lang="zh-CN">
@@ -84,7 +82,6 @@ export function renderPage() {
       color: var(--late-fg); background: var(--late-bg); border-radius: 8px;
       padding: 10px 12px; margin-bottom: 0;
     }
-    .note { color: var(--late-fg); }
 
     .table-wrap {
       background: var(--surface); border: 1px solid var(--border);
@@ -124,7 +121,7 @@ export function renderPage() {
   <div class="shell">
     <header>
       <h1>MES 实施计划</h1>
-      <p class="lede">通过本机 mes CLI 只读查询，最多返回 ${PAGE_SIZE} 条。</p>
+      <p class="lede">通过本机 mes CLI 只读查询。</p>
     </header>
 
     <form id="query-form" class="filters">
@@ -151,7 +148,6 @@ export function renderPage() {
     const submit = form.querySelector('button')
     const status = document.querySelector('#status')
     const results = document.querySelector('#results')
-    const PAGE_SIZE = ${PAGE_SIZE}
 
     // 面板嵌在 DSH 中央列时跟随外壳主题；独立打开时保持 prefers-color-scheme。
     window.addEventListener('message', (event) => {
@@ -206,15 +202,9 @@ export function renderPage() {
         })
         const payload = await response.json()
         if (!response.ok || !payload.ok) throw new Error(payload.error || '查询失败，请稍后重试')
-        const truncated = payload.total > payload.plans.length
-        setStatus(truncated
-          ? '共 ' + payload.total + ' 条，仅显示前 ' + PAGE_SIZE + ' 条，请缩小时间范围。'
-          : '共 ' + payload.plans.length + ' 条。')
-        if (truncated) status.classList.add('note')
-        else status.classList.remove('note')
+        setStatus('共 ' + payload.plans.length + ' 条。')
         renderPlans(payload.plans)
       } catch (error) {
-        status.classList.remove('note')
         setStatus(error.message || '查询失败，请稍后重试', 'error')
       } finally {
         submit.disabled = false

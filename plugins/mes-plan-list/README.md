@@ -16,16 +16,20 @@ mes auth status
 The workspace uses pnpm and DSH. Run the following commands from the workspace
 root.
 
-Link this local package into the DSH Web profile once before launching it:
+Register this local package with the DSH Web profile once before launching it:
 
 ```sh
-dsh plugin --profile web add "link:$(pwd)/plugins/mes-plan-list"
+pnpm register
 ```
 
-`package.json` declares `dsh.bundle.patch`, so that command also appends
-`mes-plan-list` to the profile's `dsh.profile.bundles` list. Without that entry
-DSH never loads the plugin: the sidebar entry is missing and both routes return
-404.
+DSH only loads a plugin whose package name is in the profile's
+`dsh.profile.bundles` list; without that entry the sidebar entry is missing and
+both routes return 404. `dsh plugin add` normally writes it, but it also runs a
+pnpm install that re-verifies the whole profile lockfile, so one unrelated
+package failing a supply-chain policy blocks the registration too. `pnpm
+register` writes the dependency, the bundle entry, and the `node_modules`
+symlink directly, so it is unaffected. It is idempotent and takes an optional
+profile name (`pnpm register -- other-profile`).
 
 ## Test
 
@@ -66,6 +70,6 @@ query endpoint. The client bundle self-registers through
 | `3` | Overdue and unfinished (已逾期未结束) |
 
 Leaving status empty queries all statuses. Queries are limited to the supplied
-date range and the plugin always requests the first 200 results; when MES
-reports a larger total, the page says so and asks for a narrower range instead
-of silently dropping plans.
+date range and return every matching plan: MES answers in pages, so the host
+pages through them until the result is complete. A wide range therefore costs
+several CLI calls — a full year (958 plans) takes about 5 calls and 7 seconds.

@@ -14,7 +14,8 @@ The plugin adds an **实施计划** entry to the DSH Web sidebar and serves a pa
 `/plugins/mes-plan-list` that sends same-origin queries to its local DSH Web
 endpoint. It accepts a start date, end date, and optional status; then it
 renders a plan table, an empty state, or a concise MES error. The plugin only
-permits those inputs and requests the first 200 matching plans.
+permits those inputs, and returns every matching plan by paging through the
+MES CLI.
 
 ## Local setup
 
@@ -26,14 +27,17 @@ First, ensure the local MES CLI is authenticated:
 mes auth status
 ```
 
-Link the plugin to DSH's Web profile once:
+Register the plugin with DSH's Web profile once:
 
 ```sh
-dsh plugin --profile web add "link:$(pwd)/plugins/mes-plan-list"
+pnpm register
 ```
 
-That command also registers the plugin in the profile's
-`dsh.profile.bundles` list, which is what makes DSH load it.
+This writes the profile's dependency entry, its `dsh.profile.bundles` entry —
+which is what makes DSH load the plugin at all — and the `node_modules`
+symlink. It is idempotent, and it avoids `dsh plugin add`'s full-profile pnpm
+install, which fails whenever any unrelated package in the profile trips a
+supply-chain policy.
 
 Run the workspace tests, then start DSH Web:
 
@@ -64,6 +68,7 @@ Leave the status field empty to include all statuses.
 ├── assets/readme/          # Repository README visuals
 ├── plugins/
 │   └── mes-plan-list/      # Package, patch, source, tests, and usage notes
+├── scripts/                # Profile registration
 ├── docs/                   # Plugin conventions and design notes
 ├── CHANGELOG.md
 ├── package.json

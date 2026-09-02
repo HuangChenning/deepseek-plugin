@@ -62,25 +62,14 @@ test('hides MES runner details when a valid query fails', async () => {
 
 test('returns plans only for a JSON POST query', async () => {
   const { handleQuery } = createHandlers({
-    query: async () => ({ plans: [{ id: 18366, title: '验证计划' }], total: 1 }),
+    query: async () => [{ id: 18366, title: '验证计划' }],
   })
   const response = makeResponse()
 
   await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', status: '3' }) }), response)
 
   assert.equal(response.statusCode, 200)
-  assert.deepEqual(JSON.parse(response.body), { ok: true, plans: [{ id: 18366, title: '验证计划' }], total: 1 })
-})
-
-test('reports the MES total so a truncated page can warn instead of silently dropping plans', async () => {
-  const { handleQuery } = createHandlers({
-    query: async () => ({ plans: [{ id: 1 }], total: 512 }),
-  })
-  const response = makeResponse()
-
-  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30' }) }), response)
-
-  assert.equal(JSON.parse(response.body).total, 512)
+  assert.deepEqual(JSON.parse(response.body), { ok: true, plans: [{ id: 18366, title: '验证计划' }] })
 })
 
 test('rejects a non-JSON query request', async () => {
@@ -175,21 +164,36 @@ test('rejects an invalid status', () => {
 })
 
 test('returns an empty list when MES has no list', async () => {
-  const result = await queryPlans(
+  const plans = await queryPlans(
     { startDate: '2026-09-01', endDate: '2026-09-30' },
     async () => JSON.stringify({ total: 0 }),
   )
 
-  assert.deepEqual(result, { plans: [], total: 0 })
+  assert.deepEqual(plans, [])
 })
 
-test('keeps the MES total even when it exceeds one page, so truncation stays visible', async () => {
-  const result = await queryPlans(
-    { startDate: '2026-09-01', endDate: '2026-09-30' },
-    async () => JSON.stringify({ list: [{ id: 1 }, { id: 2 }], total: 987 }),
-  )
+test('pages through MES so a result larger than one page is returned whole', async () => {
+  const requested = []
+  const plans = await queryPlans({ startDate: '2026-09-01', endDate: '2026-09-30' }, async (args) => {
+    const page = Number(args[args.indexOf('--page') + 1])
+    requested.push(page)
+    const size = Number(args[args.indexOf('--page-size') + 1])
+    const all = Array.from({ length: 450 }, (unused, index) => ({ id: index + 1 }))
+    return JSON.stringify({ list: all.slice((page - 1) * size, page * size), total: all.length })
+  })
 
-  assert.deepEqual(result, { plans: [{ id: 1 }, { id: 2 }], total: 987 })
+  assert.deepEqual(requested, [1, 2, 3])
+  assert.equal(plans.length, 450)
+  assert.deepEqual(plans.at(-1), { id: 450 })
+})
+
+test('stops paging on an empty page even when MES reports an unreachable total', async () => {
+  const plans = await queryPlans({ startDate: '2026-09-01', endDate: '2026-09-30' }, async (args) => {
+    const page = Number(args[args.indexOf('--page') + 1])
+    return JSON.stringify({ list: page === 1 ? [{ id: 1 }] : [], total: 9999 })
+  })
+
+  assert.deepEqual(plans, [{ id: 1 }])
 })
 
 test('surfaces a non-zero runner failure', async () => {

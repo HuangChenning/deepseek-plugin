@@ -10,7 +10,8 @@ All notable changes to this project will be documented in this file.
 - Read-only MES implementation-plan list Web plugin.
 - Browser half (`dsh.client`) that adds an **实施计划** sidebar entry to DSH Web
   and opens the plugin page over the center column.
-- Truncation notice when MES reports more plans than the single 200-row page.
+- `pnpm register`, which registers every workspace plugin with a DSH profile
+  without `dsh plugin add`'s full-profile pnpm install.
 - Workspace CI running the tests and a whitespace check.
 
 ### Fixed
@@ -27,3 +28,5 @@ All notable changes to this project will be documented in this file.
 - Redesigned the plugin page: filter card, status badges, contract subtitles,
   executor column, empty/error states, and light/dark themes synced from the
   DSH shell.
+- Queries now return every matching plan; the host pages through the MES CLI
+  instead of capping the result at the first 200 rows.

@@ -2,5 +2,8 @@
   "name": "deepseek-plugin-workspace",
   "private": true,
   "packageManager": "pnpm@10.0.0",
-  "scripts": { "test": "pnpm --recursive test" }
+  "scripts": {
+    "test": "pnpm --recursive test",
+    "register": "node scripts/register-dsh-plugins.mjs"
+  }
 }

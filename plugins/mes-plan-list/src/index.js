@@ -70,8 +70,8 @@ export function createHandlers({ query = queryPlans } = {}) {
         return
       }
       try {
-        const { plans, total } = await query(input)
-        writeJson(response, 200, { ok: true, plans, total })
+        const plans = await query(input)
+        writeJson(response, 200, { ok: true, plans })
       } catch {
         writeJson(response, 502, { ok: false, error: 'MES 查询失败，请稍后重试' })
       }

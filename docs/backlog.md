@@ -17,15 +17,16 @@
 - 确认 `dsh-task-board` 的 `session/list` endpoint 警告来自当前 DSH 版本
   （需 >= 0.1.2-alpha.2，本机为 0.1.1-rc.2），与 `mes-plan-list` 无关。
 - 为 workspace 增加 CI（`pnpm test` + `git diff --check`）。
+- 用 `pnpm register`（`scripts/register-dsh-plugins.mjs`）取代手工编辑 profile：
+  `dsh plugin add` 会顺带跑一次覆盖整个 profile 的 pnpm install，因而被 profile
+  里五个无关包的 `minimumReleaseAge` 违规一并拒绝（`@linxin666/*`、`dsh-context`、
+  `dsh-cost-meter`、`dshmarket`；该 cutoff 是滚动窗口，不是固定日期）。脚本只写
+  dependencies、`dsh.profile.bundles` 和 node_modules 软链，不受影响，且幂等。
+- 取消 200 条结果上限：`queryPlans` 现在翻页取全（实测全年 958 条、5 次 CLI
+  调用、约 7 秒）。
 
 ## 必须补充验证
 
-- [ ] 在干净环境重新验证安装流程。本机 `dsh plugin --profile web add
-      link:./plugins/mes-plan-list` 被 pnpm 供应链策略拒绝——profile 里
-      `@linxin666/*`、`dsh-context`、`dsh-cost-meter`、`dshmarket` 五个条目触发
-      `minimumReleaseAge`，与本插件无关。本次是手工把 `mes-plan-list` 追加到
-      `~/.dsh/profiles/web/package.json` 的 `dsh.profile.bundles` 绕过的；等那些
-      包过了发布冷却期后，应让 `dsh plugin add` 自己完成注册并确认结果一致。
 - [ ] 确认 DSH 进程的 PATH 能找到 `mes`。查询用 `execFile('mes', args)`，依赖
       PATH 解析；本次验证是从终端启动 `dsh --profile web`（PATH 含
       `/opt/homebrew/bin`）。若从 GUI 或 launchd 启动，可能解析失败并统一报
@@ -39,14 +40,18 @@
       需要先明确要检查什么（链接有效性？命令可执行性？），再实现。
 - [ ] 开发第二个 DSH 插件后，再评估是否抽取共享工具包；在此之前不要创建共享抽象。
       侧边栏注入逻辑是第一个可能的候选。
-- [ ] 评估是否需要额外筛选条件（客户、负责人、团队、标题）或分页；当前版本明确
-      不包含这些功能，仅在结果被 200 条上限截断时提示用户缩小范围。
+- [ ] 评估是否需要额外筛选条件（客户、负责人、团队、标题）。当前版本不含这些。
+      结果不再有条数上限，但大范围查询会串行发多次 CLI 调用、一次性渲染全部行；
+      若实际使用中范围继续放大，需要考虑前端虚拟滚动或并行取页。
 - [ ] 评估是否需要计划详情链接、导出或其他只读展示；当前版本不提供计划修改能力。
 
 ## 当前运行与本地状态
 
 - 验证时 DSH Web 以 `dsh --profile web --no-open --port 3080` 运行；接手前先用
   `lsof -nP -iTCP:3080 -sTCP:LISTEN` 确认端口占用。
+- `docs/superpowers/` 下的 plan 与 design 文档是初版归档，仍写着不存在的
+  `dsh web --patch …` 命令和「不做分页」的验证标准，两者都已被实现取代。本次
+  未改动它们（属于历史记录），但后续 agent 不应把它们当作现行约定。
 - `AGENTS.md` 和 `CLAUDE.md` 是本地指令文件，必须同步更新且不得提交或推送。
 - `.DS_Store` 是本地未跟踪文件，不得提交。
 - DSH profile 的本地 `link:` 安装属于机器状态，不在 Git 仓库中；新机器需要重新
@@ -57,8 +62,8 @@
 - 查询通过 Node `execFile('mes', args)` 执行，禁止 shell 拼接。
 - API 只接受 `startDate`、`endDate`、`status`，并限制请求体为 16 KiB。
 - 实施计划状态：`0` 未开始、`1` 进行中、`2` 结束、`3` 已逾期未结束。
-- 页面固定使用 `--page 1 --page-size 200`，不做分页；接口返回 MES 的 `total`，
-  页面据此提示结果被截断，而不是静默丢弃。
+- 每次向 MES 请求 200 条，由 `queryPlans` 依据 MES 返回的 `total` 翻页直到取完；
+  空页也终止循环，避免 `total` 异常时打转。页面不分页，一次渲染全部结果。
 - 侧边栏入口是纯 DOM 注入 + `MutationObserver` 自愈：DSH 没有给外部插件开放
   侧边栏 slot，`dsh-task-board` 也是同样做法。
 - 面板用 iframe 承载已有页面，避免把页面重写成 React 组件；iframe 拿不到外壳的
