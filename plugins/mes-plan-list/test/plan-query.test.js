@@ -46,7 +46,7 @@ test('rejects a JSON query without a start date before it reaches MES', async ()
   })
   const response = makeResponse()
 
-  await handleQuery(makeRequest({ body: JSON.stringify({ endDate: '2026-09-30', status: '' }) }), response)
+  await handleQuery(makeRequest({ body: JSON.stringify({ endDate: '2026-09-30' }) }), response)
 
   assert.equal(response.statusCode, 400)
   assert.deepEqual(JSON.parse(response.body), { ok: false, error: '开始日期不能为空' })
@@ -60,7 +60,7 @@ test('hides MES runner details when a valid query fails', async () => {
   })
   const response = makeResponse()
 
-  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', status: '' }) }), response)
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30' }) }), response)
 
   assert.equal(response.statusCode, 502)
   assert.deepEqual(JSON.parse(response.body), { ok: false, error: 'MES 查询失败，请稍后重试' })
@@ -74,7 +74,7 @@ test('returns plans only for a JSON POST query', async () => {
   })
   const response = makeResponse()
 
-  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', status: '3' }) }), response)
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', statuses: ['3'] }) }), response)
 
   assert.equal(response.statusCode, 200)
   const payload = JSON.parse(response.body)
@@ -115,6 +115,8 @@ test('refresh forces a resync even when the window is cached', async () => {
       calls += 1
       return [{ id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 2 }]
     },
+    // 同步会连报工一起拉，不注入就会真的去调用 mes CLI。
+    hours: async () => [],
     store: () => store,
   })
 
@@ -136,6 +138,7 @@ test('syncs a window wide enough to cover everything already cached', async () =
       asked.push(`${input.startDate}~${input.endDate}`)
       return []
     },
+    hours: async () => [],
     store: () => store,
   })
 
@@ -163,7 +166,7 @@ test('syncs the whole window regardless of the status filter', async () => {
   })
   const response = makeResponse()
 
-  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', status: '3' }) }), response)
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', statuses: ['3'] }) }), response)
 
   assert.deepEqual(asked, [''], '向 MES 要的是全状态')
   assert.deepEqual(JSON.parse(response.body).plans.map((row) => row.id), [2], '状态过滤在本地完成')

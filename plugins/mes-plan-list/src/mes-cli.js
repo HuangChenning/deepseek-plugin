@@ -16,6 +16,12 @@ const VERSION_PATTERN = /^mes version (\d+\.\d+\.\d+\S*)/m
 /** 单次 CLI 调用的超时，避免网络类子命令把请求挂死。 */
 const TIMEOUT_MS = 30_000
 
+/**
+ * 子进程输出上限。execFile 默认只有 1 MiB，而一页 500 条报工的 JSON 就会超过它，
+ * 表现为一个没有任何线索的「命令执行失败」。
+ */
+const MAX_OUTPUT_BYTES = 64 * 1024 * 1024
+
 /** 配置了绝对路径就用它，否则沿用 PATH 里的 `mes`。 */
 export async function resolveMesBinary(config = undefined) {
   const { mesPath } = config ?? (await readConfig())
@@ -25,7 +31,7 @@ export async function resolveMesBinary(config = undefined) {
 export async function runMes(args, { timeout = TIMEOUT_MS } = {}) {
   const binary = await resolveMesBinary()
   try {
-    const { stdout } = await execFileAsync(binary, args, { encoding: 'utf8', timeout })
+    const { stdout } = await execFileAsync(binary, args, { encoding: 'utf8', timeout, maxBuffer: MAX_OUTPUT_BYTES })
     return stdout
   } catch {
     throw new Error('MES 命令执行失败')
@@ -36,7 +42,7 @@ export async function runMes(args, { timeout = TIMEOUT_MS } = {}) {
 async function execMes(args, timeout) {
   const binary = await resolveMesBinary()
   try {
-    const { stdout, stderr } = await execFileAsync(binary, args, { encoding: 'utf8', timeout })
+    const { stdout, stderr } = await execFileAsync(binary, args, { encoding: 'utf8', timeout, maxBuffer: MAX_OUTPUT_BYTES })
     return `${stdout}${stderr}`.trim()
   } catch (error) {
     const combined = `${error?.stdout ?? ''}${error?.stderr ?? ''}`.trim()

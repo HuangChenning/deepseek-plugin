@@ -80,6 +80,30 @@ export function renderPage() {
     button:hover { filter: brightness(1.06); }
     button:disabled { opacity: .55; cursor: progress; }
 
+    /* 多选筛选：MES 只接受单值，多选靠本地缓存筛，所以这里用复选片而非下拉。 */
+    .picker { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .picker-label { font-size: 12px; font-weight: 500; color: var(--muted); margin-right: 4px; min-width: 28px; }
+    .picker label {
+      display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+      border: 1px solid var(--border); border-radius: 999px; padding: 3px 11px;
+      font-size: 12px; color: var(--muted); user-select: none;
+    }
+    .picker label:hover { border-color: var(--accent); color: var(--text); }
+    .picker input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+    .picker label:has(input:checked) {
+      background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500;
+    }
+    .picker label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .chip {
+      background: transparent; border: 1px solid var(--border); border-radius: 999px;
+      padding: 3px 11px; font-size: 12px; font-weight: 400; color: var(--muted); cursor: pointer;
+    }
+    .chip:hover { background: var(--surface-sunken); border-color: var(--accent); color: var(--text); filter: none; }
+    .chip[data-active] {
+      background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500;
+    }
+    .chip[data-active]:hover { background: var(--accent); color: #fff; }
+
     .status { margin: 18px 0 12px; min-height: 20px; font-size: 13px; color: var(--muted); }
     .status[data-tone="error"] {
       color: var(--late-fg); background: var(--late-bg); border-radius: 8px;
@@ -103,11 +127,11 @@ export function renderPage() {
     }
     tbody tr + tr td { border-top: 1px solid var(--border); }
     tbody tr:hover td { background: var(--surface-sunken); }
-    td.title { font-weight: 500; max-width: 320px; }
+    td.title { font-weight: 500; max-width: 280px; }
     td.company { max-width: 200px; }
-    .sub { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
-    .dates { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
-    .dates b { display: block; color: var(--text); font-weight: 400; }
+    td.id, td.num, td.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    td.id, td.date { color: var(--muted); }
+    td.num { text-align: right; }
 
     .badge {
       display: inline-block; white-space: nowrap; border-radius: 999px;
@@ -221,17 +245,35 @@ export function renderPage() {
     <form id="query-form" class="filters">
       <label class="field"><span>开始日期</span><input name="startDate" type="date" required></label>
       <label class="field"><span>结束日期</span><input name="endDate" type="date" required></label>
-      <label class="field"><span>状态</span>
-        <select name="status">
-          <option value="">全部</option>
-          <option value="0">未开始</option>
-          <option value="1">进行中</option>
-          <option value="2">结束</option>
-          <option value="3">已逾期未结束</option>
-        </select>
-      </label>
       <button type="submit">查询</button>
       <button type="button" id="sync" class="ghost">同步最新数据</button>
+
+      <div class="picker" data-picker="range">
+        <span class="picker-label">快捷</span>
+        <button type="button" class="chip" data-days="7">最近 7 天</button>
+        <button type="button" class="chip" data-days="30">最近 30 天</button>
+        <button type="button" class="chip" data-days="90">最近 90 天</button>
+      </div>
+
+      <div class="picker" data-picker="status">
+        <span class="picker-label">状态</span>
+        <button type="button" class="chip" data-clear="status">全部</button>
+        <label><input type="checkbox" value="0"><span>未开始</span></label>
+        <label><input type="checkbox" value="1"><span>进行中</span></label>
+        <label><input type="checkbox" value="2"><span>结束</span></label>
+        <label><input type="checkbox" value="3"><span>已逾期未结束</span></label>
+      </div>
+      <div class="picker" data-picker="checkType">
+        <span class="picker-label">类型</span>
+        <button type="button" class="chip" data-clear="checkType">全部</button>
+        <label><input type="checkbox" value="0"><span>巡检</span></label>
+        <label><input type="checkbox" value="1"><span>培训</span></label>
+        <label><input type="checkbox" value="2"><span>现场人天</span></label>
+        <label><input type="checkbox" value="3"><span>驻场</span></label>
+        <label><input type="checkbox" value="4"><span>售前POC</span></label>
+        <label><input type="checkbox" value="5"><span>维保</span></label>
+        <label><input type="checkbox" value="6"><span>内部事项</span></label>
+      </div>
     </form>
 
     <p id="status" class="status" role="status"></p>
@@ -332,22 +374,23 @@ export function renderPage() {
     }
 
     const renderRow = (plan) => '<tr>'
-      + '<td class="company">' + escapeHtml(plan.companyName) + '</td>'
-      + '<td class="title">' + escapeHtml(plan.title)
-      + (plan.contractName ? '<span class="sub">' + escapeHtml(plan.contractName) + '</span>' : '')
-      + '</td>'
+      + '<td class="id">' + escapeHtml(plan.id) + '</td>'
+      + '<td class="title">' + escapeHtml(plan.title) + '</td>'
+      + '<td class="company">' + escapeHtml(plan.contractName) + '</td>'
       + '<td>' + escapeHtml(plan.checkTypeDesc) + '</td>'
       + '<td>' + escapeHtml(executors(plan)) + '</td>'
-      + '<td class="dates"><b>' + escapeHtml(day(plan.startDate)) + '</b>' + escapeHtml(day(plan.endDate)) + '</td>'
+      + '<td class="num">' + escapeHtml(plan.windowHours ?? '—') + '</td>'
+      + '<td class="date">' + escapeHtml(day(plan.startDate)) + '</td>'
+      + '<td class="date">' + escapeHtml(day(plan.endDate)) + '</td>'
       + '<td><span class="badge" data-status="' + escapeHtml(plan.status) + '">' + escapeHtml(plan.statusDesc) + '</span></td>'
       + '</tr>'
 
     const renderPlans = (plans) => {
       if (plans.length === 0) {
-        results.innerHTML = '<p class="empty">该时间范围内没有符合条件的实施计划。</p>'
+        results.innerHTML = '<p class="empty">没有符合条件的实施计划。</p>'
         return
       }
-      const labels = ['客户', '计划', '类型', '执行人', '起止日期', '状态']
+      const labels = ['计划ID', '计划标题', '合同名称', '合同类型', '执行人', '报工工时(h)', '计划开始', '计划结束', '进行状态']
       results.innerHTML = '<div class="table-wrap"><table><thead><tr>'
         + labels.map((label) => '<th>' + label + '</th>').join('')
         + '</tr></thead><tbody>' + plans.map(renderRow).join('') + '</tbody></table></div>'
@@ -355,6 +398,21 @@ export function renderPage() {
 
     const DAY_MS = 24 * 60 * 60 * 1000
     const sync = document.querySelector('#sync')
+
+    /** 最近一次查询的结果，供「加载报工工时」就地补上工时后重绘。 */
+    let lastPlans = []
+
+    /** 「全部」按钮的选中态：该组一个都没勾时，就是「全部」。 */
+    const syncAllChip = (name) => {
+      const chip = document.querySelector('.chip[data-clear="' + name + '"]')
+      if (chip !== null) chip.toggleAttribute('data-active', picked(name).length === 0)
+    }
+
+    /** 某个多选组里被勾中的值；空数组表示不限。 */
+    const picked = (name) => Array.from(
+      document.querySelectorAll('[data-picker="' + name + '"] input:checked'),
+      (input) => input.value,
+    )
 
     /** 数据是本地缓存，必须让用户看见它有多新，否则会拿陈旧数据做判断。 */
     const describeFreshness = (syncedAt) => {
@@ -368,7 +426,7 @@ export function renderPage() {
     const runQuery = async (refresh) => {
       submit.disabled = true
       sync.disabled = true
-      setStatus(refresh ? '正在从 MES 同步…' : '正在查询…')
+      setStatus(refresh ? '正在从 MES 同步计划与报工工时，时间范围越大越慢…' : '正在查询…')
       results.innerHTML = ''
       const values = new FormData(form)
       try {
@@ -378,12 +436,19 @@ export function renderPage() {
           body: JSON.stringify({
             startDate: values.get('startDate'),
             endDate: values.get('endDate'),
-            status: values.get('status'),
+            statuses: picked('status'),
+            checkTypes: picked('checkType'),
             refresh,
           }),
         })
         const payload = await response.json()
         if (!response.ok || !payload.ok) throw new Error(payload.error || '查询失败，请稍后重试')
+        // 工时随窗口变化，所以由服务端按当前窗口给出；没有报工缓存时为 null，
+        // 表格显示「—」，同步一次即可补上。
+        lastPlans = payload.plans
+        if (payload.hours !== null && payload.hours !== undefined) {
+          for (const plan of lastPlans) plan.windowHours = payload.hours[plan.id] ?? 0
+        }
         const freshness = describeFreshness(payload.syncedAt)
         setStatus('共 ' + payload.plans.length + ' 条。' + (freshness === '' ? '' : ' ' + freshness.text),
           freshness !== '' && freshness.stale ? 'stale' : undefined)
@@ -402,6 +467,20 @@ export function renderPage() {
       event.preventDefault()
       runQuery(false)
     })
+
+    // 日期快捷选择：结束日期取今天，开始日期往前推 N-1 天，含今天共 N 天。
+    const iso = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+    for (const chip of document.querySelectorAll('.chip[data-days]')) {
+      chip.addEventListener('click', () => {
+        const days = Number(chip.dataset.days)
+        const today = new Date()
+        const from = new Date(today)
+        from.setDate(from.getDate() - (days - 1))
+        form.startDate.value = iso(from)
+        form.endDate.value = iso(today)
+        runQuery(false)
+      })
+    }
 
     sync.addEventListener('click', () => {
       if (form.reportValidity()) runQuery(true)
@@ -525,9 +604,12 @@ export function renderPage() {
     const checkPlugin = document.querySelector('#check-plugin')
     const updatePlugin = document.querySelector('#update-plugin')
 
+    // 显示发布版本号；本地领先于该版本时把领先的提交数一并标出，避免让人以为
+    // 自己正好停在那个发布版本上。
     const showPluginVersion = (payload) => {
-      pluginVersion.textContent = payload.branch + ' @ ' + payload.commit
-        + (payload.at ? '（' + payload.at.slice(0, 10) + '）' : '')
+      const base = payload.version || payload.commit
+      const ahead = payload.ahead > 0 ? ' +' + payload.ahead : ''
+      pluginVersion.textContent = base + ahead + ' · ' + payload.branch
     }
 
     // 打开页面只读本地 git 信息，不联网。
@@ -556,7 +638,7 @@ export function renderPage() {
         updatePlugin.hidden = payload.upToDate
         pluginFeedback.textContent = payload.upToDate
           ? '已是最新版本。'
-          : '有新版本（远程 ' + payload.remoteCommit + '），可以更新。'
+          : '检测到新版本，可以更新。'
         pluginFeedback.dataset.tone = payload.upToDate ? 'ok' : 'error'
       } catch (error) {
         pluginFeedback.textContent = error.message || '检查更新失败'
@@ -578,7 +660,7 @@ export function renderPage() {
         showPluginVersion(payload)
         updatePlugin.hidden = true
         pluginFeedback.textContent = payload.changed
-          ? '已更新到 ' + payload.commit + '，请重启 DSH 使新版本生效。'
+          ? '已更新到 ' + (payload.version || payload.commit) + '，请重启 DSH 使新版本生效。'
           : '已是最新版本，无需更新。'
         pluginFeedback.dataset.tone = 'ok'
       } catch (error) {
@@ -589,6 +671,20 @@ export function renderPage() {
         checkPlugin.disabled = false
       }
     })
+
+    for (const chip of document.querySelectorAll('.chip[data-clear]')) {
+      chip.addEventListener('click', () => {
+        for (const input of document.querySelectorAll('[data-picker="' + chip.dataset.clear + '"] input')) {
+          input.checked = false
+        }
+        syncAllChip(chip.dataset.clear)
+      })
+    }
+    for (const picker of document.querySelectorAll('[data-picker]')) {
+      picker.addEventListener('change', () => { syncAllChip(picker.dataset.picker) })
+    }
+    syncAllChip('status')
+    syncAllChip('checkType')
 
     loadConfig()
     refreshAuth()

@@ -86,6 +86,52 @@ test('includes a plan starting later in the day than the window start, as MES do
   store.close()
 })
 
+/*
+ * MES 的 --status / --check-type 只接受单值（实测 `--status 2,3` 返回 0 条），
+ * 多选因此只能靠本地缓存实现——缓存里存的是窗口全集，任意组合都能筛。
+ */
+test('filters by several statuses at once, which MES itself cannot do', async () => {
+  const store = await tempStore()
+  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [
+    { ...plan(1, '2026-07-05', '2026-07-06', 1), checkType: 0 },
+    { ...plan(2, '2026-07-07', '2026-07-08', 2), checkType: 5 },
+    { ...plan(3, '2026-07-09', '2026-07-10', 3), checkType: 5 },
+  ])
+
+  const window = { startDate: '2026-07-01', endDate: '2026-07-31' }
+  assert.deepEqual(store.readPlans({ ...window, statuses: ['2', '3'] }).map((r) => r.id), [2, 3])
+  store.close()
+})
+
+test('filters by several check types at once', async () => {
+  const store = await tempStore()
+  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [
+    { ...plan(1, '2026-07-05', '2026-07-06'), checkType: 0 },
+    { ...plan(2, '2026-07-07', '2026-07-08'), checkType: 5 },
+    { ...plan(3, '2026-07-09', '2026-07-10'), checkType: 1 },
+  ])
+
+  const window = { startDate: '2026-07-01', endDate: '2026-07-31' }
+  assert.deepEqual(store.readPlans({ ...window, checkTypes: ['0', '1'] }).map((r) => r.id), [1, 3])
+  store.close()
+})
+
+test('combines status and check type filters', async () => {
+  const store = await tempStore()
+  store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [
+    { ...plan(1, '2026-07-05', '2026-07-06', 2), checkType: 5 },
+    { ...plan(2, '2026-07-07', '2026-07-08', 3), checkType: 5 },
+    { ...plan(3, '2026-07-09', '2026-07-10', 2), checkType: 0 },
+  ])
+
+  const rows = store.readPlans({
+    startDate: '2026-07-01', endDate: '2026-07-31', statuses: ['2'], checkTypes: ['5'],
+  })
+
+  assert.deepEqual(rows.map((r) => r.id), [1])
+  store.close()
+})
+
 test('filters by status locally', async () => {
   const store = await tempStore()
   store.writeWindow({ startDate: '2026-07-01', endDate: '2026-07-31' }, [
@@ -93,7 +139,7 @@ test('filters by status locally', async () => {
     plan(2, '2026-07-07', '2026-07-08', 3),
   ])
 
-  assert.deepEqual(store.readPlans({ startDate: '2026-07-01', endDate: '2026-07-31', status: '3' }).map((r) => r.id), [2])
+  assert.deepEqual(store.readPlans({ startDate: '2026-07-01', endDate: '2026-07-31', statuses: ['3'] }).map((r) => r.id), [2])
   store.close()
 })
 

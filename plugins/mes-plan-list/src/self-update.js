@@ -21,15 +21,31 @@ async function git(args, timeout = 30_000) {
   return stdout.trim()
 }
 
+/**
+ * 把 `git describe` 的输出拆成版本号与领先的提交数。
+ *
+ * `v0.1.0` → 正好在这个发布版本上；`v0.1.0-2-gabc1234` → 该版本之后又有 2 个
+ * 提交。用 describe 而不是读 package.json 的 version：后者在这两种情况下都是
+ * 同一个值，看不出本地是否已经领先于发布版本。仓库还没有任何 tag 时，
+ * `--always` 会退回成短 sha，此时如实显示 sha。
+ */
+function parseDescribe(described) {
+  const matched = /^(.+)-(\d+)-g[0-9a-f]+$/.exec(described)
+  if (matched === null) return { version: described, ahead: 0 }
+  return { version: matched[1], ahead: Number(matched[2]) }
+}
+
 /** 当前签出的版本。纯本地，不联网。 */
 export async function readPluginVersion() {
-  const [commit, branch, at, subject] = await Promise.all([
+  const [commit, branch, at, subject, described] = await Promise.all([
     git(['rev-parse', '--short', 'HEAD']),
     git(['rev-parse', '--abbrev-ref', 'HEAD']),
     git(['log', '-1', '--format=%cI']),
     git(['log', '-1', '--format=%s']),
+    // --always：仓库尚无 tag 时退回短 sha，而不是让整块读取失败。
+    git(['describe', '--tags', '--always']),
   ])
-  return { commit, branch, at, subject }
+  return { commit, branch, at, subject, ...parseDescribe(described) }
 }
 
 /**

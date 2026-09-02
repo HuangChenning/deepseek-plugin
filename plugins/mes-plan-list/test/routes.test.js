@@ -81,6 +81,19 @@ test('clears the mes path without running a version check', async () => {
   assert.equal(verified, false)
 })
 
+// 筛选值域固定，不能让请求塞进任意数字——它们会直接进 SQL 的 IN 子句。
+test('rejects filter codes outside the known set', async () => {
+  const { handleQuery } = createHandlers()
+  const status = makeResponse()
+  const type = makeResponse()
+
+  await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', statuses: ['9'] }) }), status)
+  await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', checkTypes: ['nope'] }) }), type)
+
+  assert.equal(JSON.parse(status.body).error, '状态值无效')
+  assert.equal(JSON.parse(type.body).error, '类型值无效')
+})
+
 test('rejects config fields other than mesPath', async () => {
   const { handleConfig } = createHandlers()
   const response = makeResponse()
@@ -320,4 +333,62 @@ test('registers the page, query, config, auth, CLI, and cache routes', async () 
     '/api/plugins/mes-plan-list/plugin',
     '/api/plugins/mes-plan-list/plugin/update',
   ])
+})
+
+/*
+ * 报工比计划多一个数量级（全年 3.4 万条、约 6 分钟），所以普通查询绝不能去取它：
+ * 只有同步（refresh）才拉报工，平时只读已有的报工缓存。
+ */
+function hoursStore({ cached, onWrite = () => {} }) {
+  return () => ({
+    findCoveringSync: () => '2026-09-02T00:00:00.000Z',
+    coveringWindow: (window) => window,
+    readPlans: () => [{ id: 18051 }],
+    writeWindow: () => '2026-09-02T00:00:00.000Z',
+    findCoveringHours: () => cached,
+    readHours: () => ({ 18051: 16 }),
+    writeHours: (window, records) => { onWrite(records) },
+  })
+}
+
+test('a plain query never fetches work hours', async () => {
+  let fetched = 0
+  const { handleQuery } = createHandlers({
+    hours: async () => { fetched += 1; return [] },
+    store: hoursStore({ cached: '2026-09-02T00:00:00.000Z' }),
+  })
+  const response = makeResponse()
+
+  await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-08-01', endDate: '2026-08-31' }) }), response)
+
+  assert.equal(fetched, 0, '普通查询不该拉报工')
+  assert.deepEqual(JSON.parse(response.body).hours, { 18051: 16 }, '已缓存的工时应随查询返回')
+})
+
+test('reports no hours rather than fetching them when none are cached', async () => {
+  let fetched = 0
+  const { handleQuery } = createHandlers({
+    hours: async () => { fetched += 1; return [] },
+    store: hoursStore({ cached: undefined }),
+  })
+  const response = makeResponse()
+
+  await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-08-01', endDate: '2026-08-31' }) }), response)
+
+  assert.equal(fetched, 0)
+  assert.equal(JSON.parse(response.body).hours, null, '没有报工缓存时给出 null，页面显示「—」')
+})
+
+test('a sync fetches and stores work hours alongside the plans', async () => {
+  const written = []
+  const { handleQuery } = createHandlers({
+    query: async () => [],
+    hours: async () => [{ id: 1, planId: 18051, workDate: '2026-08-05', hours: 8 }],
+    store: hoursStore({ cached: '2026-09-02T00:00:00.000Z', onWrite: (records) => written.push(records.length) }),
+  })
+  const response = makeResponse()
+
+  await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-08-01', endDate: '2026-08-31', refresh: true }) }), response)
+
+  assert.deepEqual(written, [1], '同步应同时写入报工')
 })

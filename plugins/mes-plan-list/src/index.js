@@ -3,6 +3,7 @@ import { renderPage } from './page.js'
 import { readConfig, writeConfig } from './config.js'
 import { isUpdating, readAuthStatus, readCliVersion, readMesVersion, readUpdateStatus, runMesUpdate } from './mes-cli.js'
 import { PlanStore } from './plan-store.js'
+import { queryWorkHours } from './work-hours.js'
 import { checkPluginUpdate, pullPluginUpdate, readPluginVersion } from './self-update.js'
 
 /** 进程内共用一个 store；懒创建让没查过的机器上不出现 .db 文件。 */
@@ -42,17 +43,30 @@ async function readJson(request) {
   }
 }
 
+/** 多选筛选项：空数组表示不限；值域固定，不接受任意数字。 */
+function validateCodes(value, allowed, label) {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new RequestError(`${label}无效`)
+  if (value.some((code) => typeof code !== 'string' || !allowed.includes(code))) throw new RequestError(`${label}无效`)
+  return [...new Set(value)]
+}
+
 function validateInput(body) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new RequestError('请求参数无效')
-  if (Object.keys(body).some((key) => !['startDate', 'endDate', 'status', 'refresh'].includes(key))) throw new RequestError('请求参数无效')
+  if (Object.keys(body).some((key) => !['startDate', 'endDate', 'statuses', 'checkTypes', 'refresh'].includes(key))) throw new RequestError('请求参数无效')
   if (body.refresh !== undefined && typeof body.refresh !== 'boolean') throw new RequestError('请求参数无效')
   if (body.startDate === undefined || body.startDate === '') throw new RequestError('开始日期不能为空')
   if (typeof body.startDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.startDate)) throw new RequestError('开始日期格式错误')
   if (body.endDate === undefined || body.endDate === '') throw new RequestError('结束日期不能为空')
   if (typeof body.endDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.endDate)) throw new RequestError('结束日期格式错误')
   if (body.startDate > body.endDate) throw new RequestError('开始日期不能晚于结束日期')
-  if (body.status !== undefined && (typeof body.status !== 'string' || !['', '0', '1', '2', '3'].includes(body.status))) throw new RequestError('状态值无效')
-  return { startDate: body.startDate, endDate: body.endDate, status: body.status ?? '', refresh: body.refresh === true }
+  return {
+    startDate: body.startDate,
+    endDate: body.endDate,
+    statuses: validateCodes(body.statuses, ['0', '1', '2', '3'], '状态值'),
+    checkTypes: validateCodes(body.checkTypes, ['0', '1', '2', '3', '4', '5', '6'], '类型值'),
+    refresh: body.refresh === true,
+  }
 }
 
 /**
@@ -61,17 +75,28 @@ function validateInput(body) {
  * 同步一律按全状态进行（status 留空），状态过滤在本地做——带状态的返回不是窗口
  * 全集，用它做幽灵行清理会误删。
  */
-async function resolvePlans({ startDate, endDate, status, refresh }, query, store) {
+async function resolvePlans({ startDate, endDate, statuses, checkTypes, refresh }, query, store, hours) {
   const window = { startDate, endDate }
+  const filter = { startDate, endDate, statuses, checkTypes }
+  // 工时只在报工缓存覆盖该窗口时才有；否则留空，页面显示「—」，等一次同步。
+  const withHours = (plans, syncedAt, fromCache) => ({
+    plans,
+    syncedAt,
+    fromCache,
+    hours: store.findCoveringHours(window) === undefined ? null : store.readHours(window),
+  })
+
   if (!refresh) {
     const syncedAt = store.findCoveringSync(window)
-    if (syncedAt !== undefined) return { plans: store.readPlans({ startDate, endDate, status }), syncedAt, fromCache: true }
+    if (syncedAt !== undefined) return withHours(store.readPlans(filter), syncedAt, true)
   }
   // 同步范围扩展到覆盖所有缓存过的窗口，否则窄窗口同步只清掉自己窗口内的幽灵行。
   const syncWindow = store.coveringWindow(window)
   const fresh = await query({ ...syncWindow, status: '' })
   const syncedAt = store.writeWindow(syncWindow, fresh)
-  return { plans: store.readPlans({ startDate, endDate, status }), syncedAt, fromCache: false }
+  // 报工按查询窗口取，不跟着计划窗口扩展：它比计划多一个数量级，扩到全年要几分钟。
+  if (refresh) store.writeHours(window, await hours(window))
+  return withHours(store.readPlans(filter), syncedAt, false)
 }
 
 function validateConfigInput(body) {
@@ -92,6 +117,7 @@ export function createHandlers({
   updateCli = runMesUpdate,
   cliBusy = isUpdating,
   store = defaultStore,
+  hours = queryWorkHours,
   readPlugin = readPluginVersion,
   checkPlugin = checkPluginUpdate,
   updatePlugin = pullPluginUpdate,
@@ -127,7 +153,7 @@ export function createHandlers({
         return
       }
       try {
-        writeJson(response, 200, { ok: true, ...(await resolvePlans(input, query, store())) })
+        writeJson(response, 200, { ok: true, ...(await resolvePlans(input, query, store(), hours)) })
       } catch {
         writeJson(response, 502, { ok: false, error: 'MES 查询失败，请稍后重试' })
       }
