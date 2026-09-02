@@ -316,7 +316,7 @@ test('rejects plugin update methods other than POST', async () => {
   assert.equal(response.headers.allow, 'POST')
 })
 
-test('registers the page, query, config, auth, CLI, and cache routes', async () => {
+test('registers the page, query, config, auth, CLI, cache, and mail routes', async () => {
   const { apply } = await import('../src/index.js')
   const routes = []
 
@@ -332,7 +332,20 @@ test('registers the page, query, config, auth, CLI, and cache routes', async () 
     '/api/plugins/mes-plan-list/cache',
     '/api/plugins/mes-plan-list/plugin',
     '/api/plugins/mes-plan-list/plugin/update',
+    '/api/plugins/mes-plan-list/mail/settings',
+    '/api/plugins/mes-plan-list/mail/settings/test',
+    '/api/plugins/mes-plan-list/mail/settings/password',
+    '/api/plugins/mes-plan-list/mail/mappings',
+    '/api/plugins/mes-plan-list/mail/mappings/template',
+    '/api/plugins/mes-plan-list/mail/mappings/import-preview',
+    '/api/plugins/mes-plan-list/mail/mappings/import-commit',
+    '/api/plugins/mes-plan-list/mail/mappings/export',
+    '/api/plugins/mes-plan-list/mail/preview',
+    '/api/plugins/mes-plan-list/mail/send',
+    '/api/plugins/mes-plan-list/mail/retry',
+    '/api/plugins/mes-plan-list/mail/history',
   ])
+  assert.equal(routes.every((route) => route.kind === 'exact'), true, '邮件路由必须精确匹配')
 })
 
 /*
@@ -390,4 +403,454 @@ test('a sync fetches and stores work hours alongside the plans', async () => {
   await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-08-01', endDate: '2026-08-31', refresh: true }) }), response)
 
   assert.deepEqual(written, [1], '同步应同时写入报工')
+})
+
+/*
+ * 邮件提醒接口。这些路由触及私有数据（收件地址、模板正文、SMTP 凭据），
+ * 因此每条断言都围绕同一个不变量：账号只能由服务端从 mes auth status 现取，
+ * 浏览器既不能提交 profileKey，也不该在任何响应里看到真实邮箱或密码。
+ */
+
+import { profileKey } from '../src/mail-store.js'
+
+const ACCOUNT = 'tester@example.invalid'
+const PROFILE = profileKey(ACCOUNT)
+const WORKBOOK_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+const mailSettings = {
+  senderName: '交付中心',
+  senderEmail: 'noreply@example.invalid',
+  smtpHost: 'smtp.example.invalid',
+  smtpPort: 465,
+  securityMode: 'tls',
+  smtpUsername: 'noreply@example.invalid',
+  subjectTemplate: '{{executorName}}：{{planCount}} 个逾期计划',
+  bodyTemplate: '执行人：{{executorName}}\n{{planList}}',
+}
+
+const mailMappings = [
+  { executorId: '1001', executorName: '张三', email: 'zhangsan@example.invalid' },
+  { executorId: '1002', executorName: '李四', email: 'lisi@example.invalid' },
+]
+
+function mailRequest(options = {}) {
+  const request = makeRequest(options)
+  request.url = options.url ?? '/'
+  return request
+}
+
+/** 只记录调用，不落盘：路由测试不应创建任何 .db 文件。 */
+function fakeMailStore(seed = {}) {
+  const state = { settings: new Map(), mappings: new Map(), history: new Map(), calls: [] }
+  if (seed.settings) state.settings.set(PROFILE, seed.settings)
+  if (seed.mappings) state.mappings.set(PROFILE, seed.mappings)
+  if (seed.history) state.history.set(PROFILE, seed.history)
+  return {
+    state,
+    readSettings(profile) { state.calls.push(['readSettings', profile]); return state.settings.get(profile) },
+    writeSettings(profile, value) { state.calls.push(['writeSettings', profile]); state.settings.set(profile, value) },
+    listMappings(profile) { state.calls.push(['listMappings', profile]); return state.mappings.get(profile) ?? [] },
+    replaceMappings(profile, rows) {
+      state.calls.push(['replaceMappings', profile])
+      if (rows.some((row) => row.email === '')) throw new Error('邮箱映射包含无效行')
+      state.mappings.set(profile, rows)
+    },
+    deleteMapping(profile, executorId) {
+      state.calls.push(['deleteMapping', profile])
+      const rows = state.mappings.get(profile) ?? []
+      state.mappings.set(profile, rows.filter((row) => row.executorId !== executorId))
+      return rows.length !== (state.mappings.get(profile) ?? []).length
+    },
+    writeBatch(profile, batch) { state.calls.push(['writeBatch', profile]); state.history.set(profile, [batch]); return 1 },
+    listHistory(profile) { state.calls.push(['listHistory', profile]); return state.history.get(profile) ?? [] },
+    clearHistory(profile) {
+      state.calls.push(['clearHistory', profile])
+      const removed = (state.history.get(profile) ?? []).length
+      state.history.delete(profile)
+      return removed
+    },
+  }
+}
+
+function mailHandlers(overrides = {}) {
+  const passwords = new Map(overrides.passwords ?? [[PROFILE, 'stored-pass']])
+  const mailStore = overrides.mailStore ?? fakeMailStore({ settings: mailSettings, mappings: mailMappings })
+  const sent = []
+  const deps = {
+    readAuth: overrides.readAuth ?? (async () => ({ loggedIn: true, account: ACCOUNT })),
+    mailStore: () => mailStore,
+    readMailPassword: async (profile) => passwords.get(profile),
+    saveMailPassword: async (profile, password) => { passwords.set(profile, password) },
+    removeMailPassword: async (profile) => passwords.delete(profile),
+    lookupPlan: overrides.lookupPlan ?? (async (id) => ({
+      id,
+      status: 3,
+      companyName: `客户 ${id}`,
+      title: `计划 ${id}`,
+      checkTypeName: '现场交付',
+      endDate: '2026-08-01 18:00:00',
+      executorList: [{ executorId: '1001', executorName: '张三' }],
+    })),
+    makeTransport: overrides.makeTransport ?? (() => ({
+      async sendMail(message) { sent.push(message); return { accepted: [message.to] } },
+    })),
+    sendTest: overrides.sendTest ?? (async () => ({ ok: true })),
+    ...overrides.deps,
+  }
+  return { handlers: createHandlers(deps), mailStore, passwords, sent }
+}
+
+async function call(handler, options) {
+  const response = makeResponse()
+  await handler(mailRequest(options), response)
+  return response
+}
+
+test('rejects every mail request from a logged-out session', async () => {
+  const mailStore = fakeMailStore({ settings: mailSettings })
+  const { handlers } = mailHandlers({ mailStore, readAuth: async () => ({ loggedIn: false, account: '' }) })
+  const probes = [
+    ['handleMailSettings', { method: 'GET' }],
+    ['handleMailSettingsTest', { method: 'POST', body: '{}' }],
+    ['handleMailPassword', { method: 'DELETE' }],
+    ['handleMailMappings', { method: 'GET' }],
+    ['handleMailMappingTemplate', { method: 'GET' }],
+    ['handleMailMappingExport', { method: 'GET' }],
+    ['handleMailImportPreview', { method: 'POST', contentType: WORKBOOK_TYPE, body: 'x' }],
+    ['handleMailImportCommit', { method: 'POST', body: '{}' }],
+    ['handleMailPreview', { method: 'POST', body: '{}' }],
+    ['handleMailSend', { method: 'POST', body: '{}' }],
+    ['handleMailRetry', { method: 'POST', body: '{}' }],
+    ['handleMailHistory', { method: 'GET' }],
+  ]
+
+  for (const [name, options] of probes) {
+    const response = await call(handlers[name], options)
+    assert.equal(response.statusCode, 401, `${name} 未登录时必须拒绝`)
+    assert.deepEqual(JSON.parse(response.body), { ok: false, error: '请先登录 MES 后再使用邮件提醒' })
+  }
+  // 未登录时连一次读取都不该发生，否则等于用别人的 profileKey 读数据。
+  assert.deepEqual(mailStore.state.calls, [])
+})
+
+test('reports an unreadable auth probe as a gateway failure, not as logged out', async () => {
+  const { handlers } = mailHandlers({ readAuth: async () => { throw new Error('mes 不存在') } })
+  const response = await call(handlers.handleMailSettings, { method: 'GET' })
+
+  assert.equal(response.statusCode, 502)
+  assert.doesNotMatch(response.body, /mes 不存在/)
+})
+
+test('derives the profile key from MES auth and refuses one supplied by the browser', async () => {
+  const { handlers, mailStore } = mailHandlers()
+  const response = await call(handlers.handleMailSettings, {
+    method: 'PUT',
+    body: JSON.stringify({ ...mailSettings, profileKey: 'attacker' }),
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: '邮件设置包含未知字段' })
+  assert.equal(mailStore.state.calls.some(([name]) => name === 'writeSettings'), false)
+})
+
+test('scopes every mail read to the authenticated account', async () => {
+  const mailStore = fakeMailStore({ settings: mailSettings, mappings: mailMappings })
+  const { handlers } = mailHandlers({ mailStore, readAuth: async () => ({ loggedIn: true, account: 'other@example.invalid' }) })
+
+  const response = await call(handlers.handleMailMappings, { method: 'GET' })
+
+  // 换个 MES 账号后看到的是空表，而不是上一个账号的私有映射。
+  assert.deepEqual(JSON.parse(response.body), { ok: true, mappings: [] })
+  assert.deepEqual(mailStore.state.calls, [['listMappings', profileKey('other@example.invalid')]])
+})
+
+test('rejects unsupported methods and content types on mail settings', async () => {
+  const { handlers } = mailHandlers()
+
+  const wrongMethod = await call(handlers.handleMailSettings, { method: 'POST', body: '{}' })
+  assert.equal(wrongMethod.statusCode, 405)
+  assert.equal(wrongMethod.headers.allow, 'GET, PUT')
+
+  const wrongType = await call(handlers.handleMailSettings, { method: 'PUT', contentType: 'text/plain', body: '{}' })
+  assert.equal(wrongType.statusCode, 415)
+})
+
+test('rejects a mail settings body over the JSON limit', async () => {
+  const { handlers } = mailHandlers()
+  const response = await call(handlers.handleMailSettings, {
+    method: 'PUT',
+    body: JSON.stringify({ ...mailSettings, senderName: 'x'.repeat(17 * 1024) }),
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: '请求体不能超过 16 KiB' })
+})
+
+test('never returns a stored password, only whether one exists', async () => {
+  const { handlers } = mailHandlers()
+  const response = await call(handlers.handleMailSettings, { method: 'GET' })
+
+  assert.equal(response.statusCode, 200)
+  const payload = JSON.parse(response.body)
+  assert.deepEqual(payload, { ok: true, settings: mailSettings, hasPassword: true })
+  assert.doesNotMatch(response.body, /stored-pass/)
+})
+
+test('saves settings without a password and keeps the stored secret', async () => {
+  const { handlers, passwords, mailStore } = mailHandlers()
+  const response = await call(handlers.handleMailSettings, {
+    method: 'PUT',
+    body: JSON.stringify({ ...mailSettings, senderName: '交付二部' }),
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.equal(passwords.get(PROFILE), 'stored-pass', '未提交新密码时不得覆盖钥匙串')
+  assert.equal(mailStore.state.settings.get(PROFILE).senderName, '交付二部')
+})
+
+test('writes a submitted password to the keychain and not to the database', async () => {
+  const { handlers, passwords, mailStore } = mailHandlers()
+  await call(handlers.handleMailSettings, {
+    method: 'PUT',
+    body: JSON.stringify({ ...mailSettings, password: 'new-pass' }),
+  })
+
+  assert.equal(passwords.get(PROFILE), 'new-pass')
+  assert.equal(Object.hasOwn(mailStore.state.settings.get(PROFILE), 'password'), false)
+})
+
+test('clears only the current profile password', async () => {
+  const { handlers, passwords } = mailHandlers({ passwords: [[PROFILE, 'a'], ['other', 'b']] })
+  const response = await call(handlers.handleMailPassword, { method: 'DELETE' })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(JSON.parse(response.body), { ok: true, hasPassword: false })
+  assert.equal(passwords.has(PROFILE), false)
+  assert.equal(passwords.get('other'), 'b')
+})
+
+test('sends a test mail with the submitted settings and a one-off recipient', async () => {
+  const calls = []
+  const { handlers, mailStore } = mailHandlers({ sendTest: async (input) => { calls.push(input); return { ok: true } } })
+  const response = await call(handlers.handleMailSettingsTest, {
+    method: 'POST',
+    body: JSON.stringify({ ...mailSettings, recipient: 'me@example.invalid' }),
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.equal(calls[0].recipient, 'me@example.invalid')
+  assert.equal(calls[0].password, 'stored-pass', '未提交密码时用钥匙串里的旧密码')
+  // 测试地址仅用于当次请求，绝不写入设置或映射。
+  assert.equal(mailStore.state.calls.some(([name]) => name === 'writeSettings'), false)
+})
+
+test('reports a redacted SMTP failure from the test endpoint', async () => {
+  const { handlers } = mailHandlers({
+    sendTest: async () => { throw new Error('SMTP 认证失败，请检查用户名或授权码') },
+  })
+  const response = await call(handlers.handleMailSettingsTest, {
+    method: 'POST',
+    body: JSON.stringify({ ...mailSettings, recipient: 'me@example.invalid' }),
+  })
+
+  assert.equal(response.statusCode, 502)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: 'SMTP 认证失败，请检查用户名或授权码' })
+})
+
+test('replaces and deletes executor mappings for the current profile', async () => {
+  const { handlers, mailStore } = mailHandlers()
+
+  const replaced = await call(handlers.handleMailMappings, {
+    method: 'PUT',
+    body: JSON.stringify({ mappings: [{ executorId: 1001, executorName: ' 张三 ', email: ' zhangsan@example.invalid ' }] }),
+  })
+  assert.equal(replaced.statusCode, 200)
+  assert.deepEqual(mailStore.state.mappings.get(PROFILE), [
+    { executorId: '1001', executorName: '张三', email: 'zhangsan@example.invalid' },
+  ])
+
+  const deleted = await call(handlers.handleMailMappings, { method: 'DELETE', url: '/x?executorId=1001' })
+  assert.equal(deleted.statusCode, 200)
+  assert.deepEqual(mailStore.state.mappings.get(PROFILE), [])
+})
+
+test('rejects unknown fields inside a mapping row', async () => {
+  const { handlers, mailStore } = mailHandlers()
+  const response = await call(handlers.handleMailMappings, {
+    method: 'PUT',
+    body: JSON.stringify({ mappings: [{ executorId: '1', executorName: 'a', email: 'a@example.invalid', note: 'x' }] }),
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.equal(mailStore.state.calls.some(([name]) => name === 'replaceMappings'), false)
+})
+
+test('serves the mapping template and export as no-store attachments', async () => {
+  const { handlers } = mailHandlers()
+
+  for (const name of ['handleMailMappingTemplate', 'handleMailMappingExport']) {
+    const response = await call(handlers[name], { method: 'GET' })
+    assert.equal(response.statusCode, 200, name)
+    assert.equal(response.headers['content-type'], WORKBOOK_TYPE, name)
+    assert.match(response.headers['content-disposition'], /^attachment; filename="[^"]+\.xlsx"$/, name)
+    // 导出内容含真实邮箱，不允许被任何中间层缓存。
+    assert.equal(response.headers['cache-control'], 'no-store', name)
+  }
+})
+
+test('bounds a workbook upload separately from the JSON limit', async () => {
+  const { handlers } = mailHandlers()
+  const response = await call(handlers.handleMailImportPreview, {
+    method: 'POST',
+    contentType: WORKBOOK_TYPE,
+    body: Buffer.alloc(2 * 1024 * 1024 + 1),
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: '上传文件不能超过 2 MiB' })
+})
+
+test('imports a workbook only through a one-time preview token', async () => {
+  const { exportMappings } = await import('../src/mail-mappings.js')
+  const mailStore = fakeMailStore({ settings: mailSettings, mappings: mailMappings })
+  const { handlers } = mailHandlers({ mailStore })
+  const workbook = Buffer.from(await exportMappings([
+    { executorId: '1003', executorName: '王五', email: 'wangwu@example.invalid' },
+  ]))
+
+  const preview = await call(handlers.handleMailImportPreview, { method: 'POST', contentType: WORKBOOK_TYPE, body: workbook })
+  assert.equal(preview.statusCode, 200)
+  const { token, added, canCommit } = JSON.parse(preview.body)
+  assert.equal(canCommit, true)
+  assert.equal(added.length, 1)
+  assert.equal(mailStore.state.calls.some(([name]) => name === 'replaceMappings'), false, '预览阶段零写入')
+
+  const commit = await call(handlers.handleMailImportCommit, { method: 'POST', body: JSON.stringify({ token }) })
+  assert.equal(commit.statusCode, 200)
+  // 合并而非整表替换：文件里没有的执行人不该被静默删除。
+  assert.deepEqual(mailStore.state.mappings.get(PROFILE).map((row) => row.executorId), ['1001', '1002', '1003'])
+
+  const replay = await call(handlers.handleMailImportCommit, { method: 'POST', body: JSON.stringify({ token }) })
+  assert.equal(replay.statusCode, 400)
+})
+
+test('refuses to commit an import whose preview reported row errors', async () => {
+  const ExcelJS = (await import('exceljs')).default
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('邮箱映射')
+  sheet.addRow(['执行人 ID', '执行人姓名', '邮箱地址'])
+  sheet.addRow(['1003', '王五', 'not-an-address'])
+  const mailStore = fakeMailStore({ settings: mailSettings, mappings: mailMappings })
+  const { handlers } = mailHandlers({ mailStore })
+
+  const preview = await call(handlers.handleMailImportPreview, {
+    method: 'POST',
+    contentType: WORKBOOK_TYPE,
+    body: Buffer.from(await workbook.xlsx.writeBuffer()),
+  })
+
+  assert.equal(preview.statusCode, 200)
+  const payload = JSON.parse(preview.body)
+  assert.equal(payload.canCommit, false)
+  assert.equal(payload.errors.length, 1)
+  assert.equal(payload.token, undefined, '有错误时不得签发导入令牌')
+  // 一行非法就整份零写入，不允许「导入成功 3 行、失败 1 行」。
+  assert.equal(mailStore.state.calls.some(([name]) => name === 'replaceMappings'), false)
+})
+
+test('returns a preview token and only masked recipients', async () => {
+  const { handlers } = mailHandlers()
+  const response = await call(handlers.handleMailPreview, { method: 'POST', body: JSON.stringify({ planIds: [1, 2] }) })
+
+  assert.equal(response.statusCode, 200)
+  const payload = JSON.parse(response.body)
+  assert.equal(typeof payload.token, 'string')
+  assert.equal(payload.groups.length, 1)
+  assert.equal(payload.groups[0].maskedEmail, 'z***@example.invalid')
+  // 真实收件地址永远不出现在响应里。
+  assert.doesNotMatch(response.body, /zhangsan@example\.invalid/)
+})
+
+test('reports a MES lookup failure during preview as a gateway error', async () => {
+  const { handlers } = mailHandlers({
+    lookupPlan: async () => { throw new Error('MES 查询计划失败，请稍后重试') },
+  })
+  const response = await call(handlers.handleMailPreview, { method: 'POST', body: JSON.stringify({ planIds: [1] }) })
+
+  assert.equal(response.statusCode, 502)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: 'MES 查询计划失败，请稍后重试' })
+})
+
+test('rejects a preview selection that is not a list of positive plan ids', async () => {
+  const { handlers } = mailHandlers()
+
+  for (const planIds of [[], ['1'], [0], [1.5]]) {
+    const response = await call(handlers.handleMailPreview, { method: 'POST', body: JSON.stringify({ planIds }) })
+    assert.equal(response.statusCode, 400, JSON.stringify(planIds))
+  }
+})
+
+test('sends a confirmed preview and records it in history', async () => {
+  const { handlers, mailStore, sent } = mailHandlers()
+  const preview = await call(handlers.handleMailPreview, { method: 'POST', body: JSON.stringify({ planIds: [1] }) })
+  const { token } = JSON.parse(preview.body)
+
+  const response = await call(handlers.handleMailSend, { method: 'POST', body: JSON.stringify({ token }) })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(sent.map((message) => message.to), ['zhangsan@example.invalid'])
+  const payload = JSON.parse(response.body)
+  assert.equal(payload.succeeded, 1)
+  assert.equal(payload.failed, 0)
+  assert.equal(mailStore.state.calls.some(([name, profile]) => name === 'writeBatch' && profile === PROFILE), true)
+})
+
+test('retries only the failed groups with the returned retry token', async () => {
+  let attempts = 0
+  const { handlers, sent } = mailHandlers({
+    makeTransport: () => ({
+      async sendMail(message) {
+        attempts += 1
+        // 首封认证失败（不重试），重试那一封放行。
+        if (attempts === 1) throw Object.assign(new Error('down'), { code: 'EAUTH' })
+        sent.push(message)
+        return { accepted: [message.to] }
+      },
+    }),
+  })
+  const preview = await call(handlers.handleMailPreview, { method: 'POST', body: JSON.stringify({ planIds: [1] }) })
+  const send = await call(handlers.handleMailSend, { method: 'POST', body: JSON.stringify({ token: JSON.parse(preview.body).token }) })
+  const { retryToken, failed } = JSON.parse(send.body)
+
+  assert.equal(failed, 1)
+  assert.equal(typeof retryToken, 'string')
+
+  const retry = await call(handlers.handleMailRetry, { method: 'POST', body: JSON.stringify({ token: retryToken }) })
+  assert.equal(retry.statusCode, 200)
+  assert.equal(JSON.parse(retry.body).succeeded, 1)
+})
+
+test('refuses to send when the profile has no stored password', async () => {
+  const { handlers, sent } = mailHandlers({ passwords: [] })
+  const response = await call(handlers.handleMailPreview, { method: 'POST', body: JSON.stringify({ planIds: [1] }) })
+
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: '请先在邮件设置中保存 SMTP 密码' })
+  assert.deepEqual(sent, [])
+})
+
+test('lists and clears profile-scoped send history', async () => {
+  const mailStore = fakeMailStore({
+    settings: mailSettings,
+    mappings: mailMappings,
+    history: [{ createdAt: '2026-09-02T10:00:00.000Z', totalMessages: 1, succeeded: 1, failed: 0, results: [] }],
+  })
+  const { handlers } = mailHandlers({ mailStore })
+
+  const listed = await call(handlers.handleMailHistory, { method: 'GET' })
+  assert.equal(JSON.parse(listed.body).history.length, 1)
+
+  const cleared = await call(handlers.handleMailHistory, { method: 'DELETE' })
+  assert.equal(cleared.statusCode, 200)
+  assert.deepEqual(JSON.parse(cleared.body), { ok: true, removed: 1, history: [] })
 })
