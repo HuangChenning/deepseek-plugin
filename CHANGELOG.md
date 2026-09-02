@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-02
+
+### Added
+
+- Work hours per plan for the queried window, fetched as part of
+  **同步最新数据**. The link is the work record's `rid`, which is the plan id;
+  the `planId` field on the same record is always null and is unrelated.
+- Multi-select status and check type, plus an **全部** chip per group that
+  clears it. MES cannot combine values itself, so the filtering runs locally
+  against the cache, which holds the whole window.
+- **最近 7 / 30 / 90 天** date presets; typing dates still works.
+- Chinese README (`README.zh-CN.md`), cross-linked with the English one.
+
+### Changed
+
+- Columns are now 计划ID / 计划标题 / 合同名称 / 合同类型 / 执行人 /
+  报工工时(h) / 计划开始 / 计划结束 / 进行状态, with start and end split apart.
+- The settings panel shows the release version (`git describe`) instead of a
+  bare commit hash, marking how far past a release the checkout is.
+- Work-record volume is described qualitatively rather than with real counts.
+
+### Fixed
+
+- `execFile`'s default 1 MiB `maxBuffer` truncated a page of work records and
+  surfaced as a bare "命令执行失败"; raised to 64 MiB. The plan query had the
+  same latent trap.
+- Work-record paging is retried with backoff — the statistics endpoint fails
+  intermittently, so a multi-page load rarely completed without it.
+
+### Notes
+
+- The cache schema changed, so existing caches are dropped and rebuilt on first
+  use. Plans re-sync in seconds; work hours need one sync to reappear.
+
 ## [0.1.0] - 2026-09-02
 
 First tagged version. The plugin is installed from this repository with
@@ -57,3 +91,4 @@ published to npm or the DSH plugin market.
   instead of capping the result at the first 200 rows.
 
 [0.1.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.1.0
+[0.2.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.2.0
