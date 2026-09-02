@@ -71,6 +71,22 @@ CLI is not logged in, naming the `mes auth login` command to run. The plugin
 never handles credentials itself. A logged-out CLI can exit non-zero while
 still printing its JSON, so that is read as "logged out", not as a failure.
 
+## mes CLI version
+
+The settings panel shows the CLI version, checks for updates, and can run
+`mes update`. `mes update --check` **ignores `-o json`** — its output is text
+only — so the plugin does not parse it into a decision beyond one deliberately
+loose test: output matching `up to date` means current, anything else is
+treated as "possibly out of date" and the raw output is shown next to an
+update button. That failure direction is intentional: if MES changes the
+wording, the user sees one extra button, rather than being told they are
+current when they are not.
+
+The check runs on page load from a 6-hour in-process cache so opening the page
+does not hit the update server every time; **检查更新** forces a fresh check.
+`mes update` replaces the binary in use, so queries are refused with 503 while
+one is running and a second update is refused with 409.
+
 ## Two halves
 
 `package.json` declares `dsh.client`, so DSH serves the browser half at

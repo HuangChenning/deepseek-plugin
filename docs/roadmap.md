@@ -108,7 +108,7 @@ dshmarket 都做了，且它对 npm 更新会校验 pnpm 实际落盘的版本�
 
 **工作量**：中。协议直白，但要写完整的状态机与失败呈现。
 
-## 4. mes CLI 更新检测与更新
+## 4. mes CLI 更新检测与更新 ✅ 已完成（2026-09-02）
 
 **方案**
 
@@ -128,7 +128,13 @@ dshmarket 都做了，且它对 npm 更新会校验 pnpm 实际落盘的版本�
 
 **依赖**：需求 1。
 
-**工作量**：小到中。
+**落地情况**：`mes-cli.js` 加了 `isUpToDate`（导出的纯函数，便于测试这条脆弱
+判断）、`readUpdateStatus`（6 小时进程内缓存，`?refresh=1` 强制重查）和
+`runMesUpdate`；路由 `GET …/cli` 与 `POST …/cli/update`。更新期间查询返回 503、
+重复更新返回 409，更新后重新读取版本而不是沿用旧值。
+
+页面加载时用缓存做一次检查（不是每次都打更新服务器），有更新才显示「更新 mes」
+按钮。若需要改成完全手动检查或落盘缓存，改 `UPDATE_CHECK_TTL_MS` 一处即可。
 
 ## 5. SQLite 本地缓存与同步
 
@@ -172,7 +178,7 @@ dshmarket 都做了，且它对 npm 更新会校验 pnpm 实际落盘的版本�
 1. ~~**需求 1 + 2**~~：已完成。`src/config.js` + `src/mes-cli.js`，两个新路由
    `/api/plugins/mes-plan-list/config`（GET/PUT）与 `…/auth`（GET），页面加了设置
    面板与登录横幅。已消除 backlog 里记的 PATH 风险。
-2. **需求 4**：依赖 1（`mes-cli.js` 已封装路径解析，直接加 `readUpdateCheck` 即可）。
+2. ~~**需求 4**~~：已完成。见上节的落地情况。
 3. **先决条件：发布**：需要你先定发布渠道与版本策略；它阻塞 3，也是「其他人使用」
    的前提。
 4. **需求 3**：发布完成后接 dshmarket update API。

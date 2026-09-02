@@ -1,7 +1,7 @@
 import { queryPlans } from './plan-query.js'
 import { renderPage } from './page.js'
 import { readConfig, writeConfig } from './config.js'
-import { readAuthStatus, readMesVersion } from './mes-cli.js'
+import { isUpdating, readAuthStatus, readMesVersion, readUpdateStatus, runMesUpdate } from './mes-cli.js'
 
 const MAX_BODY_BYTES = 16 * 1024
 const JSON_CONTENT_TYPE = /^application\/json(?:\s*;|$)/i
@@ -58,6 +58,9 @@ export function createHandlers({
   saveConfig = writeConfig,
   readVersion = readMesVersion,
   readAuth = readAuthStatus,
+  readCliStatus = readUpdateStatus,
+  updateCli = runMesUpdate,
+  cliBusy = isUpdating,
 } = {}) {
   return {
     async handlePage(request, response) {
@@ -75,6 +78,11 @@ export function createHandlers({
       }
       if (!JSON_CONTENT_TYPE.test(request.headers['content-type'] ?? '')) {
         writeJson(response, 415, { ok: false, error: '仅支持 JSON 请求' })
+        return
+      }
+      // 更新会替换正在使用的二进制，此刻发起查询会以难懂的方式失败。
+      if (cliBusy()) {
+        writeJson(response, 503, { ok: false, error: 'mes 正在更新，请稍后重试' })
         return
       }
       let input
@@ -137,15 +145,44 @@ export function createHandlers({
         writeJson(response, 502, { ok: false, error: '无法读取 MES 登录状态，请检查 mes 路径配置' })
       }
     },
+    async handleCli(request, response) {
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { ok: false, error: '仅支持 GET 请求' }, { allow: 'GET' })
+        return
+      }
+      const refresh = request.url !== undefined && request.url.includes('refresh=1')
+      try {
+        writeJson(response, 200, { ok: true, ...(await readCliStatus({ refresh })) })
+      } catch {
+        writeJson(response, 502, { ok: false, error: '无法读取 mes 版本，请检查 mes 路径配置' })
+      }
+    },
+    async handleCliUpdate(request, response) {
+      if (request.method !== 'POST') {
+        writeJson(response, 405, { ok: false, error: '仅支持 POST 请求' }, { allow: 'POST' })
+        return
+      }
+      if (cliBusy()) {
+        writeJson(response, 409, { ok: false, error: 'mes 正在更新，请稍候' })
+        return
+      }
+      try {
+        writeJson(response, 200, { ok: true, ...(await updateCli()) })
+      } catch {
+        writeJson(response, 502, { ok: false, error: 'mes 更新失败，请在终端执行 mes update 查看详情' })
+      }
+    },
   }
 }
 
 export const inject = ['webServer']
 
 export function apply(ctx) {
-  const { handlePage, handleQuery, handleConfig, handleAuth } = createHandlers()
+  const { handlePage, handleQuery, handleConfig, handleAuth, handleCli, handleCliUpdate } = createHandlers()
   ctx.webServer.register({ kind: 'exact', path: '/plugins/mes-plan-list', handler: handlePage })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/query', handler: handleQuery })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/config', handler: handleConfig })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/auth', handler: handleAuth })
+  ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/cli', handler: handleCli })
+  ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/cli/update', handler: handleCliUpdate })
 }

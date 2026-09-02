@@ -150,6 +150,16 @@ export function renderPage() {
     .panel .feedback { margin: 10px 0 0; font-size: 12px; color: var(--muted); min-height: 16px; }
     .panel .feedback[data-tone="error"] { color: var(--late-fg); }
     .panel .feedback[data-tone="ok"] { color: var(--ok-fg); }
+    .panel .rule { border: none; border-top: 1px solid var(--border); margin: 18px 0 14px; }
+    .panel .version {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+      color: var(--muted); margin-right: auto;
+    }
+    .panel .output {
+      margin: 12px 0 0; padding: 10px 12px; border-radius: 8px;
+      background: var(--surface-sunken); color: var(--muted);
+      font-size: 12px; white-space: pre-wrap; overflow-x: auto;
+    }
   </style>
 </head>
 <body>
@@ -172,6 +182,17 @@ export function renderPage() {
         <button type="button" id="save-config">保存</button>
       </div>
       <p id="config-feedback" class="feedback" role="status"></p>
+
+      <hr class="rule">
+      <h2>mes CLI 版本</h2>
+      <p class="hint">更新会替换本机的 mes 二进制，期间查询会被暂时拒绝。</p>
+      <div class="row">
+        <span id="cli-version" class="version">读取中…</span>
+        <button type="button" id="check-cli" class="ghost">检查更新</button>
+        <button type="button" id="update-cli" hidden>更新 mes</button>
+      </div>
+      <pre id="cli-output" class="output" hidden></pre>
+      <p id="cli-feedback" class="feedback" role="status"></p>
     </section>
 
     <form id="query-form" class="filters">
@@ -331,8 +352,80 @@ export function renderPage() {
       }
     })
 
+    const cliVersion = document.querySelector('#cli-version')
+    const cliOutput = document.querySelector('#cli-output')
+    const cliFeedback = document.querySelector('#cli-feedback')
+    const checkCli = document.querySelector('#check-cli')
+    const updateCli = document.querySelector('#update-cli')
+
+    const renderCli = (payload) => {
+      cliVersion.textContent = 'mes ' + payload.version
+      cliOutput.textContent = payload.output
+      cliOutput.hidden = payload.output === ''
+      // 认不出「已是最新」时保留更新入口：宁可多显示一个按钮，也不要在 MES 改
+      // 文案后把有更新说成没更新。
+      updateCli.hidden = payload.upToDate
+      if (!payload.upToDate) {
+        cliFeedback.textContent = 'mes 可能有新版本，请看上方输出。'
+        cliFeedback.dataset.tone = 'error'
+      } else {
+        cliFeedback.textContent = ''
+        delete cliFeedback.dataset.tone
+      }
+    }
+
+    const loadCli = async (refresh) => {
+      checkCli.disabled = true
+      if (refresh) {
+        cliFeedback.textContent = '正在检查…'
+        delete cliFeedback.dataset.tone
+      }
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cli' + (refresh ? '?refresh=1' : ''))
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '无法读取 mes 版本')
+        renderCli(payload)
+      } catch (error) {
+        cliVersion.textContent = 'mes 版本未知'
+        cliFeedback.textContent = error.message || '无法读取 mes 版本'
+        cliFeedback.dataset.tone = 'error'
+      } finally {
+        checkCli.disabled = false
+      }
+    }
+
+    checkCli.addEventListener('click', () => loadCli(true))
+
+    updateCli.addEventListener('click', async () => {
+      updateCli.disabled = true
+      checkCli.disabled = true
+      submit.disabled = true
+      cliFeedback.textContent = '正在更新 mes，期间查询不可用…'
+      delete cliFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cli/update', { method: 'POST' })
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || 'mes 更新失败')
+        cliVersion.textContent = 'mes ' + payload.version
+        cliOutput.textContent = payload.output
+        cliOutput.hidden = payload.output === ''
+        cliFeedback.textContent = '已更新到 ' + payload.version + '。'
+        cliFeedback.dataset.tone = 'ok'
+        updateCli.hidden = true
+        await refreshAuth()
+      } catch (error) {
+        cliFeedback.textContent = error.message || 'mes 更新失败'
+        cliFeedback.dataset.tone = 'error'
+      } finally {
+        updateCli.disabled = false
+        checkCli.disabled = false
+        submit.disabled = false
+      }
+    })
+
     loadConfig()
     refreshAuth()
+    loadCli(false)
   </script>
 </body>
 </html>`

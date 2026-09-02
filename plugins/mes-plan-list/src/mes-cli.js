@@ -32,6 +32,19 @@ export async function runMes(args, { timeout = TIMEOUT_MS } = {}) {
   }
 }
 
+/** 执行并拿到输出，非零退出也返回而不抛——子命令用退出码表达结果时需要。 */
+async function execMes(args, timeout) {
+  const binary = await resolveMesBinary()
+  try {
+    const { stdout, stderr } = await execFileAsync(binary, args, { encoding: 'utf8', timeout })
+    return `${stdout}${stderr}`.trim()
+  } catch (error) {
+    const combined = `${error?.stdout ?? ''}${error?.stderr ?? ''}`.trim()
+    if (combined === '') throw new Error('mes 命令执行失败')
+    return combined
+  }
+}
+
 /**
  * 读取某个二进制自称的版本。保存 mes 路径前用它确认「这个文件确实是 mes」——
  * 只检查绝对路径和可执行位是不够的，那样等于允许把任意程序配成 mes。
@@ -72,5 +85,56 @@ export async function readAuthStatus() {
   return {
     loggedIn: payload.status === 'ok' && payload.tokenValid === true,
     account: typeof payload.account === 'string' ? payload.account.trim() : '',
+  }
+}
+
+/** `mes update --check` 会走网络，缓存结果，避免每次打开页面都打外部服务器。 */
+const UPDATE_CHECK_TTL_MS = 6 * 60 * 60 * 1000
+let updateCheckCache
+
+/** `mes update` 会替换正在使用的二进制，期间必须挡住其他 CLI 调用。 */
+let updating = false
+
+export function isUpdating() {
+  return updating
+}
+
+/**
+ * 判断 `mes update --check` 的输出是否表示「已是最新」。
+ *
+ * 该子命令只有文本输出（`-o json` 对它不生效，已实测），所以这是个刻意宽松的
+ * 判断：只有认得出「up to date」才算最新，认不出一律当作「可能有更新」。失败
+ * 方向必须是让用户多看一眼原始输出，而不是在 MES 改文案后宣称已是最新、让用户
+ * 错过更新。
+ */
+export function isUpToDate(output) {
+  return /up to date/i.test(output)
+}
+
+/** 读取 CLI 版本与更新检查结果。 */
+export async function readUpdateStatus({ refresh = false } = {}) {
+  if (!refresh && updateCheckCache !== undefined && Date.now() - updateCheckCache.at < UPDATE_CHECK_TTL_MS) {
+    return updateCheckCache.value
+  }
+  const version = await readMesVersion(await resolveMesBinary())
+  // 比默认的 30s 短：这是页面加载路径，网络不通时不该让用户干等。
+  const output = await execMes(['update', '--check'], 15_000)
+  const value = { version, upToDate: isUpToDate(output), output }
+  updateCheckCache = { at: Date.now(), value }
+  return value
+}
+
+/** 执行 `mes update`，返回 CLI 输出与更新后的版本。 */
+export async function runMesUpdate() {
+  if (updating) throw new Error('mes 正在更新，请稍候')
+  updating = true
+  try {
+    const output = await execMes(['update'], 180_000)
+    // 二进制刚被替换，版本要重新读，不能沿用更新前的值。
+    const version = await readMesVersion(await resolveMesBinary())
+    updateCheckCache = undefined
+    return { version, output }
+  } finally {
+    updating = false
   }
 }

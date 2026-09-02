@@ -133,7 +133,88 @@ test('hides CLI details when the auth probe itself fails', async () => {
   assert.deepEqual(JSON.parse(response.body), { ok: false, error: '无法读取 MES 登录状态，请检查 mes 路径配置' })
 })
 
-test('registers the page, query, config, and auth routes', async () => {
+test('reports the CLI version and update check', async () => {
+  const { handleCli } = createHandlers({
+    readCliStatus: async () => ({ version: '0.5.3', upToDate: true, output: 'mes is up to date: 0.5.3' }),
+  })
+  const response = makeResponse()
+
+  await handleCli(makeRequest(), response)
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(JSON.parse(response.body), {
+    ok: true, version: '0.5.3', upToDate: true, output: 'mes is up to date: 0.5.3',
+  })
+})
+
+test('passes refresh=1 through so the user can force a fresh check', async () => {
+  const seen = []
+  const { handleCli } = createHandlers({
+    readCliStatus: async (options) => { seen.push(options.refresh); return { version: '0.5.3', upToDate: true, output: '' } },
+  })
+
+  const request = makeRequest()
+  request.url = '/api/plugins/mes-plan-list/cli?refresh=1'
+  await handleCli(request, makeResponse())
+  await handleCli(makeRequest(), makeResponse())
+
+  assert.deepEqual(seen, [true, false])
+})
+
+// 更新会替换正在使用的二进制；此刻放行查询会以难懂的方式失败。
+test('refuses queries while the mes binary is being replaced', async () => {
+  const { handleQuery } = createHandlers({
+    cliBusy: () => true,
+    query: async () => { throw new Error('query should not run during an update') },
+  })
+  const response = makeResponse()
+
+  await handleQuery(makeRequest({ method: 'POST', body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30' }) }), response)
+
+  assert.equal(response.statusCode, 503)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: 'mes 正在更新，请稍后重试' })
+})
+
+test('refuses a second update while one is already running', async () => {
+  const { handleCliUpdate } = createHandlers({
+    cliBusy: () => true,
+    updateCli: async () => { throw new Error('update should not start twice') },
+  })
+  const response = makeResponse()
+
+  await handleCliUpdate(makeRequest({ method: 'POST' }), response)
+
+  assert.equal(response.statusCode, 409)
+  assert.deepEqual(JSON.parse(response.body), { ok: false, error: 'mes 正在更新，请稍候' })
+})
+
+test('reports the version the CLI has after an update', async () => {
+  const { handleCliUpdate } = createHandlers({
+    cliBusy: () => false,
+    updateCli: async () => ({ version: '0.6.0', output: 'updated' }),
+  })
+  const response = makeResponse()
+
+  await handleCliUpdate(makeRequest({ method: 'POST' }), response)
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(JSON.parse(response.body), { ok: true, version: '0.6.0', output: 'updated' })
+})
+
+test('hides CLI details when an update fails', async () => {
+  const { handleCliUpdate } = createHandlers({
+    cliBusy: () => false,
+    updateCli: async () => { throw new Error('dial tcp: connection refused') },
+  })
+  const response = makeResponse()
+
+  await handleCliUpdate(makeRequest({ method: 'POST' }), response)
+
+  assert.equal(response.statusCode, 502)
+  assert.match(JSON.parse(response.body).error, /mes 更新失败/)
+})
+
+test('registers the page, query, config, auth, and CLI routes', async () => {
   const { apply } = await import('../src/index.js')
   const routes = []
 
@@ -144,5 +225,7 @@ test('registers the page, query, config, and auth routes', async () => {
     '/api/plugins/mes-plan-list/query',
     '/api/plugins/mes-plan-list/config',
     '/api/plugins/mes-plan-list/auth',
+    '/api/plugins/mes-plan-list/cli',
+    '/api/plugins/mes-plan-list/cli/update',
   ])
 })

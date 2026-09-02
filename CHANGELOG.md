@@ -17,6 +17,9 @@ All notable changes to this project will be documented in this file.
   executable cannot be configured as `mes`.
 - Login-state banner: the page reads `mes auth status` on load and names the
   command to run when the CLI is not logged in.
+- mes CLI version panel: shows the installed version, checks for updates
+  (6-hour cache, manual refresh), and runs `mes update`. Queries are refused
+  while the binary is being replaced.
 - Workspace CI running the tests and a whitespace check.
 
 ### Fixed
