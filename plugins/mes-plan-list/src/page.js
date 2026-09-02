@@ -328,10 +328,8 @@ export function renderPage() {
         <button type="button" id="clear-cache" class="ghost">清空缓存</button>
       </div>
       <p id="cache-feedback" class="feedback" role="status"></p>
-    </section>
 
-    <section id="mail-panel" class="panel">
-      <h2>逾期风险邮件提醒</h2>
+      <h2 id="mail-panel">逾期风险邮件提醒</h2>
       <p class="hint">只有「已逾期未结束」的计划可以发送。密码保存在 macOS 钥匙串，邮箱映射与发送历史保存在本机独立数据库，清空计划缓存不会删除它们。</p>
 
       <form id="mail-settings-form" class="mail-form">
@@ -418,7 +416,7 @@ export function renderPage() {
       <button type="button" id="mail-preview-button">生成邮件预览</button>
     </div>
     <div id="results"></div>
-    <section id="mail-preview" class="panel" hidden>
+    <section id="mail-preview" class="panel">
       <h2>邮件预览</h2>
       <div id="mail-preview-groups"></div>
       <label class="confirm"><input id="mail-confirm" type="checkbox"> 我已逐封核对上述内容，确认发送</label>
@@ -1204,7 +1202,7 @@ export function renderPage() {
       mailToken = ''
       mailConfirm.checked = false
       mailRetry.hidden = true
-      mailPanel.hidden = true
+      mailPanel.removeAttribute('data-show')
       updateMailSendButton()
     }
 
@@ -1219,7 +1217,7 @@ export function renderPage() {
         const payload = await mailJson('/preview', postJson('', { planIds: [...selectedPlanIds] }))
         mailToken = payload.token
         renderMailPreview(payload.groups)
-        mailPanel.hidden = false
+        mailPanel.setAttribute('data-show', '')
         mailRetry.hidden = true
         mailConfirm.checked = false
         return '请逐封核对后勾选确认。'

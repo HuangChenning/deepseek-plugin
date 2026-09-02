@@ -186,3 +186,42 @@ test('mail content is rendered through text nodes rather than innerHTML', () => 
   // 邮件正文、收件人和映射都来自服务端，一律走 textContent，不拼 HTML。
   assert.doesNotMatch(mailSection, /\.innerHTML\s*=(?!\s*'')/)
 })
+
+/*
+ * 可达性。`.panel` 默认 display:none，只有 [data-show] 才显示，而「设置」开关只给
+ * #settings 加这个属性。一个新增的 .panel 兄弟节点因此会永久不可见——光断言
+ * id 存在于标记里抓不到这种问题，必须断言它真的能被显示出来。
+ */
+
+test('the mail configuration lives inside the settings drawer that the toggle opens', () => {
+  const html = renderPage()
+  const start = html.indexOf('<section id="settings"')
+  const drawer = html.slice(start, html.indexOf('</section>', start))
+
+  // 设置开关只作用于 #settings，所以邮件配置必须在它内部才打得开。
+  for (const id of ['mail-panel', 'mail-settings-form', 'mail-mappings', 'mail-history']) {
+    assert.match(drawer, new RegExp(`id="${id}"`), `#${id} 不在设置抽屉内，将永久不可见`)
+  }
+})
+
+test('every .panel section is either the settings drawer or shown via data-show', () => {
+  const html = renderPage()
+  const script = html.split('<script>')[1]
+  const panels = [...html.matchAll(/<section id="([^"]+)"[^>]*class="panel"/g)].map((match) => match[1])
+
+  assert.ok(panels.length > 0, '未找到任何 .panel 区块')
+  for (const id of panels) {
+    if (id === 'settings') continue
+    // hidden 属性对 display:none 的元素无效，必须走 data-show。
+    assert.match(script, new RegExp(`setAttribute\\('data-show'`), `#${id} 缺少 data-show 显示路径`)
+  }
+})
+
+test('the preview panel is toggled with data-show rather than the hidden attribute', () => {
+  const script = renderPage().split('<script>')[1]
+  const mailSection = script.slice(script.indexOf('const renderMailPreview'))
+
+  assert.doesNotMatch(mailSection, /mailPanel\.hidden/, '.panel 的 display:none 会盖过 hidden')
+  assert.match(mailSection, /mailPanel\.setAttribute\('data-show', ''\)/)
+  assert.match(mailSection, /mailPanel\.removeAttribute\('data-show'\)/)
+})
