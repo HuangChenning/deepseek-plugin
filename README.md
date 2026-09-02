@@ -23,6 +23,12 @@ Results come from a local cache, so a repeat query is instant; **同步最新数
 re-fetches from MES. Every matching plan is returned — the host pages through
 the CLI rather than truncating.
 
+Plans that are **overdue and unfinished** can additionally be grouped by
+executor and sent a plain-text risk-briefing email, after an explicit preview
+and confirmation. Nothing is ever sent in the background. See the
+[plugin README](./plugins/mes-plan-list/README.md#overdue-risk-email-reminders)
+for the SMTP, Keychain, and mapping setup.
+
 ## Local setup
 
 ### Prerequisites
@@ -80,6 +86,12 @@ Query results are cached in a per-machine SQLite database at
 leaves your machine and is not part of this repository. The plugin's settings
 panel shows what it covers and can clear it.
 
+Email reminder data — SMTP settings, executor address mappings, and send
+history — lives in a **separate** database at
+`~/.dsh/storages/mes-plan-list/mail.db`, so clearing the plan cache never takes
+it with it. The SMTP password is stored only in the macOS Keychain. Neither is
+part of this repository.
+
 **同步最新数据 also fetches work-hour records, which is why it is slow.** They
 outnumber plans by roughly an order of magnitude, so a month takes about a
 minute. Hours are fetched only for the queried date range, and a plain query
@@ -123,9 +135,15 @@ is deferred until two plugins have a stable, tested common need.
 ## Read-only safety boundary
 
 `mes-plan-list` does not create, update, delete, export, or otherwise modify
-MES plans. The host validates the three allowed fields and calls the local
-`mes` binary with fixed process arguments—never through a shell—so browser
-input cannot supply another CLI flag.
+MES plans. The host validates the allowed fields and calls the local `mes`
+binary with fixed process arguments—never through a shell—so browser input
+cannot supply another CLI flag.
+
+The email reminder is the one feature that sends data off your machine, and it
+stays inside that boundary: it reads plans, it never writes them back, and it
+never closes a plan or reads a mailbox. Every send requires a preview and an
+explicit confirmation, and the server re-checks each plan's status against MES
+immediately before the first message leaves.
 
 See [CHANGELOG.md](./CHANGELOG.md) for the release history, and
 [`plugins/mes-plan-list/README.md`](./plugins/mes-plan-list/README.md) for the

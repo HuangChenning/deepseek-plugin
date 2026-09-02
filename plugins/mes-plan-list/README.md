@@ -162,6 +162,122 @@ to external plugins, so the entry row is plain DOM re-inserted by a
 query endpoint. The client bundle self-registers through
 `window.__ModuleLoader__.load` — DSH rejects a plain ES module.
 
+## Overdue risk email reminders
+
+Plans that are **overdue and unfinished** (status `3`) can be grouped by
+executor and sent a plain-text risk-briefing email. This is the one part of the
+plugin that leaves your machine, so it is gated behind an explicit preview and
+confirmation: nothing is ever sent in the background, and the plugin never
+closes a plan or reads a mailbox.
+
+### Prerequisites
+
+- macOS. The SMTP password is stored in the login Keychain via the `security`
+  CLI; there is no other password store and none is written to disk by the
+  plugin.
+- An SMTP account that issues a client-specific password (an app password).
+  Your normal login password will usually be rejected by the provider.
+
+### SMTP security modes
+
+Only two modes exist, and neither can fall back to plaintext:
+
+| Mode | Meaning | Typical port |
+| --- | --- | --- |
+| `tls` | The connection is encrypted from the start (implicit SSL/TLS). | 465 |
+| `starttls` | The session must upgrade to TLS; the plugin aborts if the upgrade fails. | 587 |
+
+There is deliberately no plaintext option. **保存** and **发送测试邮件** are
+separate actions, so a profile can be verified before it is stored; the test
+recipient is used for that one request only and is never persisted.
+
+Saving without filling in the password field keeps the password already in the
+Keychain, so settings can be edited without retyping it. **清除已存密码**
+removes it.
+
+### Executor email mapping
+
+MES does not carry executor email addresses, so they are supplied as a
+workbook. **下载导入模板** produces a sheet with exactly these three headers:
+
+| 执行人 ID | 执行人姓名 | 邮箱地址 |
+| --- | --- | --- |
+
+Import is two-phase. The upload is parsed in memory and shown as a preview
+classified into added / updated / unchanged / errors. **A workbook with any row
+error commits nothing** — the preview simply offers no confirm button, so a
+partial import cannot happen. Confirming merges by 执行人 ID: an executor absent
+from the workbook keeps their stored address rather than being silently
+deleted.
+
+**导出映射 produces a file containing real email addresses.** Treat it as
+private: do not commit it, attach it to a ticket, or forward it.
+
+### Sending
+
+1. Query plans, then tick the ones to send. Only status `3` rows have a
+   checkbox. Selection is keyed by plan ID, so it survives paging; the header
+   checkbox only selects the current page.
+2. **生成邮件预览** submits plan IDs only. The server re-reads every selected
+   plan from MES, groups them per executor, and renders the templates. If any
+   plan is no longer overdue, or any executor has no mapped address, the whole
+   batch stops — there is no partial preview.
+3. Review each expanded group, tick the confirmation box, then **确认发送**.
+   The server re-checks plan status a second time before the first message
+   leaves, because minutes may have passed since the preview.
+4. Messages are sent one at a time. A single failure does not stop the rest. A
+   transient network failure is retried once; an authentication failure or a
+   rejected recipient is not retried, because neither improves on a second
+   attempt. Failed groups can be retried on their own afterwards.
+
+The preview token is random, bound to the current MES account, single-use, and
+held only in memory — restarting DSH invalidates it.
+
+Templates accept exactly three variables: `{{executorName}}`, `{{planCount}}`,
+and `{{planList}}`. Anything else is rejected rather than sent literally.
+
+### Per-account isolation
+
+Every mail request derives its identity from `mes auth status` on the server
+side and keys storage by the SHA-256 of that account. The browser cannot submit
+an identity and never receives one. Switching MES accounts therefore shows a
+different set of settings, mappings, and history; one account cannot read
+another's rows.
+
+### Where the private data lives
+
+| What | Where |
+| --- | --- |
+| SMTP password | macOS Keychain, service `mes-plan-list.smtp`, account = the hashed MES account |
+| Settings, mappings, send history | `~/.dsh/storages/mes-plan-list/mail.db` |
+| Plan cache | `~/.dsh/storages/mes-plan-list/plans.db` |
+
+Mail data is a **separate database from the plan cache on purpose**: clearing
+the cache rebuilds `plans.db` from MES and must never take your mappings with
+it.
+
+### Privacy checklist
+
+Never committed, never logged, never in a release archive:
+
+- SMTP passwords — they exist only in the Keychain.
+- Real email addresses. Send history stores masked addresses (`z***@example.invalid`)
+  and an error code, never a full address or a message body.
+- Message bodies and template text.
+- Uploaded workbook contents. The buffer is parsed in memory and not retained.
+- Test fixtures in this repository use `example.invalid` addresses only.
+
+Each store is cleared independently, so you can drop one without losing the
+others:
+
+| To clear | Do this |
+| --- | --- |
+| SMTP password | **清除已存密码** in the mail settings panel |
+| One executor's address | **删除** on that row of the mapping table |
+| Send history | **清空历史** |
+| Plan cache | **清空缓存** in the settings panel — this does not touch `mail.db` |
+| Everything | Delete `~/.dsh/storages/mes-plan-list/` and the `mes-plan-list.smtp` Keychain items |
+
 ## Status values
 
 | Value | MES status |

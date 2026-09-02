@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Overdue risk email reminders.** Plans that are 已逾期未结束 can be selected
+  across pages, grouped by executor, previewed, and — after an explicit
+  confirmation — sent a plain-text risk-briefing email. The server re-checks
+  every plan's status against MES immediately before sending, so a plan closed
+  since the preview is never mailed about. Sending is sequential; one failure
+  does not stop the batch, a transient network error is retried once, and
+  failed recipients can be retried on their own.
+- Executor email addresses are managed in the plugin: an Excel import with an
+  added/updated/unchanged preview (a workbook with any bad row writes nothing),
+  a downloadable template, and an export.
+- SMTP settings support SSL/TLS and forced STARTTLS only. The password is kept
+  in the macOS Keychain, never on disk; **保存** and **发送测试邮件** are
+  separate so a profile can be verified before it is stored.
+
+### Notes
+
+- Mail data lives in a new `~/.dsh/storages/mes-plan-list/mail.db`, separate
+  from the plan cache, so **清空缓存** does not delete settings, mappings, or
+  history. Send history stores masked addresses and an error code only.
+- All mail data is scoped to the MES account that is logged in; switching
+  accounts shows a different, isolated set.
+
 ## [0.4.0] - 2026-09-02
 
 ### Added

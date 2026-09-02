@@ -1,6 +1,7 @@
-# 本地 SQLite 缓存：每台机器在首次查询时自己生成，绝不入库。
-# 正常位置是 ~/.dsh/storages/mes-plan-list/plans.db（在工作区之外），
-# 这里是第二道保险，防止有人把它拷进仓库。
+# 本地 SQLite 数据：每台机器自己生成，绝不入库。正常位置在工作区之外的
+# ~/.dsh/storages/mes-plan-list/ 下——plans.db 是可重建的计划缓存，
+# mail.db 存放 SMTP 设置、执行人邮箱映射和发送历史（含真实邮箱）。
+# 这里是第二道保险，防止有人把它们拷进仓库。
 *.db
 *.db-shm
 *.db-wal
