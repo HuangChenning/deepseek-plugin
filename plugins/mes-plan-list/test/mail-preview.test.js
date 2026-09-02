@@ -125,7 +125,8 @@ test('blocks the complete batch when any executor lacks an email mapping', () =>
       mappings,
       settings,
     }),
-    { message: '执行人邮箱映射不完整' },
+    // 必须点名是谁、该去哪儿补，否则用户只能逐个试错。
+    { message: /王五/ },
   )
 })
 
@@ -138,7 +139,48 @@ test('blocks the complete batch when a plan executor has no id to map', () => {
       mappings,
       settings,
     }),
-    { message: '执行人邮箱映射不完整' },
+    { message: /没有姓名|执行人 ID/ },
+  )
+})
+
+test('names a nameless executor by plan and id instead of blocking silently', () => {
+  // MES 有时只给 executorId 不给姓名。这种执行人永远配不出按姓名建立的映射，
+  // 所以必须说明是哪条计划、该去 MES 补什么，而不是重复报「映射不完整」。
+  assert.throws(
+    () => buildMailPreview({
+      profileKey: 'profile-a',
+      planIds: [1],
+      plans: [plan(1, [{ executorId: '15401', executorName: null }])],
+      mappings,
+      settings,
+    }),
+    (error) => {
+      assert.match(error.message, /计划 1（执行人 ID 15401）/)
+      assert.match(error.message, /在 MES 中补全该执行人姓名|取消勾选/)
+      return true
+    },
+  )
+})
+
+test('reports every blocker at once rather than one per attempt', () => {
+  assert.throws(
+    () => buildMailPreview({
+      profileKey: 'profile-a',
+      planIds: [1, 2],
+      plans: [
+        plan(1, [{ executorId: '1003', executorName: '王五' }]),
+        plan(2, [{ executorId: '1004', executorName: '赵六' }, { executorId: '15401', executorName: null }]),
+      ],
+      mappings,
+      settings,
+    }),
+    (error) => {
+      // 一次说清全部，否则补一个、再预览、再撞下一个。
+      assert.match(error.message, /王五/)
+      assert.match(error.message, /赵六/)
+      assert.match(error.message, /15401/)
+      return true
+    },
   )
 })
 

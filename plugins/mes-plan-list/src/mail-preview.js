@@ -46,6 +46,25 @@ function selectedPlans(planIds, plans) {
   return [...new Map(selected.map((plan) => [plan.id, plan])).values()].sort((left, right) => Number(left.id) - Number(right.id))
 }
 
+/**
+ * 把所有拦截项一次说清楚，而不是遇到第一个就抛。用户否则要逐个试错：补一个人、
+ * 再预览、再撞下一个。姓名缺失与邮箱缺失的处置方式完全不同，必须分开讲。
+ */
+function describeBlockers(missingNames, nameless) {
+  const parts = []
+  if (missingNames.length > 0) {
+    const shown = missingNames.slice(0, 5).join('、')
+    const more = missingNames.length > 5 ? `等 ${missingNames.length} 人` : ''
+    parts.push(`以下执行人还没有邮箱映射：${shown}${more}，请在「执行人邮箱映射」中补充后重试`)
+  }
+  if (nameless.length > 0) {
+    const shown = nameless.slice(0, 3).map((item) => `计划 ${item.planId}（执行人 ID ${item.executorId}）`).join('、')
+    const more = nameless.length > 3 ? ` 等 ${nameless.length} 项` : ''
+    parts.push(`另有执行人在 MES 中没有姓名，无法按姓名建立映射：${shown}${more}；请在 MES 中补全该执行人姓名，或取消勾选这些计划`)
+  }
+  return parts.join('；')
+}
+
 /** 生成已完成状态复核的计划的逐执行人邮件预览。 */
 export function buildMailPreview({ profileKey, planIds, plans, mappings, settings }) {
   if (typeof profileKey !== 'string' || profileKey.trim() === '') throw new Error('MES 账号不能为空')
@@ -54,17 +73,28 @@ export function buildMailPreview({ profileKey, planIds, plans, mappings, setting
 
   const mappingById = new Map((mappings ?? []).map((mapping) => [String(mapping.executorId), mapping]))
   const groups = new Map()
+  const missingNames = new Set()
+  const nameless = []
   for (const plan of selectedPlans(planIds, plans)) {
     const executors = Array.isArray(plan.executorList) ? plan.executorList : []
-    if (executors.length === 0) throw new Error('计划缺少执行人')
+    if (executors.length === 0) throw new Error(`计划 ${plan.id} 没有执行人，无法发送提醒，请取消勾选`)
     const executorIds = new Set()
     for (const executor of executors) {
       const executorId = String(executor?.executorId ?? '')
-      if (executorId === '') throw new Error('执行人邮箱映射不完整')
+      const executorName = String(executor?.executorName ?? '').trim()
+      if (executorId === '') {
+        nameless.push({ planId: plan.id, executorId: '未知' })
+        continue
+      }
       if (executorIds.has(executorId)) continue
       executorIds.add(executorId)
       const mapping = mappingById.get(executorId)
-      if (mapping === undefined || typeof mapping.email !== 'string' || mapping.email.trim() === '') throw new Error('执行人邮箱映射不完整')
+      if (mapping === undefined || typeof mapping.email !== 'string' || mapping.email.trim() === '') {
+        // 没有姓名的执行人永远配不出映射（映射是按姓名建立的），要分开提示。
+        if (executorName === '') nameless.push({ planId: plan.id, executorId })
+        else missingNames.add(executorName)
+        continue
+      }
       if (!groups.has(executorId)) {
         groups.set(executorId, {
           executorId,
@@ -75,6 +105,10 @@ export function buildMailPreview({ profileKey, planIds, plans, mappings, setting
       }
       groups.get(executorId).plans.push(plan)
     }
+  }
+
+  if (missingNames.size > 0 || nameless.length > 0) {
+    throw new Error(describeBlockers([...missingNames], nameless))
   }
 
   // 同一个人可能有多个历史 MES 账号，各自名下都有逾期计划。按邮箱合并，

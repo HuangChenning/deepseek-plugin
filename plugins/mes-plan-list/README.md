@@ -218,6 +218,14 @@ A name that appears in no cached plan is reported as a row error rather than
 silently dropped, and writing the same person on two rows is an error too —
 the server cannot know which address you meant.
 
+When a preview is blocked, it names **every** blocker at once rather than one
+per attempt, and separates the two cases because they are fixed differently:
+
+- *执行人还没有邮箱映射* — add the address in the mapping panel and retry.
+- *执行人在 MES 中没有姓名* — MES sometimes stores an `executorId` with no name.
+  Such a person can never be matched by a name-keyed workbook, so the message
+  names the plan and the ID: either fill the name in MES, or unselect that plan.
+
 Import is two-phase. The upload is parsed in memory and shown as a preview
 classified into added / updated / unchanged / errors. **A workbook with any row
 error commits nothing** — the preview simply offers no confirm button, so a
