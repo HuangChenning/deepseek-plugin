@@ -278,6 +278,10 @@ export function renderPage() {
       border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow);
     }
     .panel[data-show] { display: block; }
+    body[data-view="settings"] .shell > :not(#settings-view) { display: none; }
+    #settings-view { margin-top: 16px; }
+    .settings-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .settings-head h1 { margin: 0; font-size: 20px; }
     .panel h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
     .panel .hint { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
     .panel .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
@@ -314,7 +318,11 @@ export function renderPage() {
 
     <p id="auth-banner" class="banner" role="status"></p>
 
-    <section id="settings" class="panel">
+    <section id="settings-view" class="panel">
+      <div class="settings-head">
+        <h1>插件设置</h1>
+        <button type="button" id="settings-back" class="ghost">返回列表</button>
+      </div>
       <h2>插件版本</h2>
       <p class="hint">更新会在本机仓库执行 <code>git pull --ff-only</code>，用你已有的 git 凭据；工作区有未提交改动时会拒绝。更新后需重启 DSH 才生效。</p>
       <div class="row">
@@ -484,14 +492,18 @@ export function renderPage() {
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character])
 
     const banner = document.querySelector('#auth-banner')
-    const settings = document.querySelector('#settings')
+    const settingsView = document.querySelector('#settings-view')
     const mesPath = document.querySelector('#mes-path')
     const saveConfig = document.querySelector('#save-config')
     const configFeedback = document.querySelector('#config-feedback')
 
     document.querySelector('#settings-toggle').addEventListener('click', () => {
-      if (settings.hasAttribute('data-show')) settings.removeAttribute('data-show')
-      else settings.setAttribute('data-show', '')
+      document.body.dataset.view = 'settings'
+      settingsView.setAttribute('data-show', '')
+    })
+    document.querySelector('#settings-back').addEventListener('click', () => {
+      delete document.body.dataset.view
+      settingsView.removeAttribute('data-show')
     })
 
     const showBanner = (html) => {

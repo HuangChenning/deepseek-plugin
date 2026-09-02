@@ -204,25 +204,27 @@ test('mail content is rendered through text nodes rather than innerHTML', () => 
  * id 存在于标记里抓不到这种问题，必须断言它真的能被显示出来。
  */
 
-test('the mail configuration lives inside the settings drawer that the toggle opens', () => {
+test('settings are a dedicated view instead of sharing the plan list', () => {
   const html = renderPage()
-  const start = html.indexOf('<section id="settings"')
-  const drawer = html.slice(start, html.indexOf('</section>', start))
+  const script = html.split('<script>')[1]
+  const settingsStart = html.indexOf('<section id="settings-view"')
+  const settingsView = html.slice(settingsStart, html.indexOf('</section>', settingsStart))
 
-  // 设置开关只作用于 #settings，所以邮件配置必须在它内部才打得开。
+  assert.match(settingsView, /id="settings-back"/, '设置页需要提供返回列表的入口')
   for (const id of ['mail-panel', 'mail-settings-form', 'mail-mappings', 'mail-history']) {
-    assert.match(drawer, new RegExp(`id="${id}"`), `#${id} 不在设置抽屉内，将永久不可见`)
+    assert.match(settingsView, new RegExp(`id="${id}"`), `#${id} 不在独立设置视图内`)
   }
+  assert.match(script, /settingsView\.setAttribute\('data-show', ''\)/, '点击设置必须展示独立设置视图')
+  assert.match(script, /settingsView\.removeAttribute\('data-show'\)/, '返回列表必须关闭独立设置视图')
 })
 
-test('every .panel section is either the settings drawer or shown via data-show', () => {
+test('every .panel section has a data-show display path', () => {
   const html = renderPage()
   const script = html.split('<script>')[1]
   const panels = [...html.matchAll(/<section id="([^"]+)"[^>]*class="panel"/g)].map((match) => match[1])
 
   assert.ok(panels.length > 0, '未找到任何 .panel 区块')
   for (const id of panels) {
-    if (id === 'settings') continue
     // hidden 属性对 display:none 的元素无效，必须走 data-show。
     assert.match(script, new RegExp(`setAttribute\\('data-show'`), `#${id} 缺少 data-show 显示路径`)
   }
