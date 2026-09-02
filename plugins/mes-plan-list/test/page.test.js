@@ -225,3 +225,13 @@ test('the preview panel is toggled with data-show rather than the hidden attribu
   assert.match(mailSection, /mailPanel\.setAttribute\('data-show', ''\)/)
   assert.match(mailSection, /mailPanel\.removeAttribute\('data-show'\)/)
 })
+
+test('the row checkboxes neutralize the global input sizing rule', () => {
+  const css = renderPage().split('<style>')[1].split('</style>')[0]
+
+  // 全局 `input { min-width: 150px }` 会把表格里的复选框拉成一条扁条，
+  // 看不出是可勾选的控件——新增的表内控件必须显式复位。
+  assert.match(css, /input\s*,\s*select\s*\{[^}]*min-width:\s*150px/, '全局规则已变，本测试的前提需要复核')
+  assert.match(css, /\.pick input \{[^}]*min-width:\s*0/)
+  assert.match(css, /\.pick input \{[^}]*width:\s*16px/)
+})

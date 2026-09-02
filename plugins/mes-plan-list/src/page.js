@@ -208,6 +208,10 @@ export function renderPage() {
     th:nth-child(4), td.check-type { width: 120px; min-width: 120px; }
     th:nth-child(5), td.executors { width: 88px; max-width: 88px; overflow-wrap: anywhere; }
     td.id, td.num, td.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    /* 全局的 input{min-width:150px;padding:7px 10px} 会把复选框拉成一条 150px 的扁条，
+       在表格里完全认不出是可勾选的控件，所以这里必须逐项复位。 */
+    th.pick, td.pick { width: 36px; padding-left: 14px; padding-right: 0; }
+    .pick input { min-width: 0; width: 16px; height: 16px; padding: 0; margin: 0; border-radius: 4px; accent-color: var(--accent); cursor: pointer; }
     td.id, td.date { color: var(--muted); }
     td.num { text-align: right; }
 
