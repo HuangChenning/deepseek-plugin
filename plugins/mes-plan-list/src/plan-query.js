@@ -39,3 +39,22 @@ export async function queryPlans(input, run = runMes) {
     if (list.length === 0 || !Number.isInteger(payload.total) || fetched >= payload.total) return [...byId.values()]
   }
 }
+
+/**
+ * 在发送前用 MES 的单计划视图重新确认状态。ID 只接受正整数，避免把浏览器输入
+ * 扩展为 CLI 参数；runMes 自身继续负责以参数数组执行子进程。
+ */
+export async function queryPlanById(id, run = runMes) {
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error('计划 ID 必须是正整数')
+  let output
+  try {
+    output = await run(['-o', 'json', 'plan', 'view', String(id)])
+  } catch {
+    throw new Error('MES 查询计划失败，请稍后重试')
+  }
+  try {
+    return JSON.parse(output)
+  } catch {
+    throw new Error('MES 返回的数据不是有效 JSON')
+  }
+}

@@ -5,7 +5,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { buildPlanListArgs, queryPlans } from '../src/plan-query.js'
+import { buildPlanListArgs, queryPlanById, queryPlans } from '../src/plan-query.js'
 import { createHandlers } from '../src/index.js'
 import { PlanStore } from '../src/plan-store.js'
 
@@ -306,5 +306,38 @@ test('surfaces a non-zero runner failure', async () => {
       async () => { throw new Error('MES command failed') },
     ),
     { message: 'MES command failed' },
+  )
+})
+
+test('looks up one numeric plan by id with MES argument array', async () => {
+  const requested = []
+
+  const plan = await queryPlanById(18366, async (args) => {
+    requested.push(args)
+    return JSON.stringify({ id: 18366, status: 3, title: '逾期计划' })
+  })
+
+  assert.deepEqual(requested, [['-o', 'json', 'plan', 'view', '18366']])
+  assert.deepEqual(plan, { id: 18366, status: 3, title: '逾期计划' })
+})
+
+test('rejects a non-numeric plan id before it reaches MES', async () => {
+  await assert.rejects(
+    queryPlanById('18366; rm -rf /', async () => { throw new Error('runner should not execute') }),
+    { message: '计划 ID 必须是正整数' },
+  )
+})
+
+test('rejects malformed MES plan output without exposing details', async () => {
+  await assert.rejects(
+    queryPlanById(18366, async () => 'internal parse detail'),
+    { message: 'MES 返回的数据不是有效 JSON' },
+  )
+})
+
+test('sanitizes MES lookup runner failures', async () => {
+  await assert.rejects(
+    queryPlanById(18366, async () => { throw new Error('secret transport detail') }),
+    { message: 'MES 查询计划失败，请稍后重试' },
   )
 })
