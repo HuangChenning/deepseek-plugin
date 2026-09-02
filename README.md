@@ -1,5 +1,7 @@
 # deepseek-plugin
 
+English | [简体中文](./README.zh-CN.md)
+
 <p align="center">
   <img src="./assets/readme/hero.svg" width="100%" alt="deepseek-plugin is a local DSH plugin workspace. Its first read-only flow runs from a browser through DSH Web and the local mes CLI to an implementation-plan list.">
 </p>
@@ -12,10 +14,14 @@ and status, entirely through the `mes` CLI already installed on your machine.
 
 The plugin adds an **实施计划** entry to the DSH Web sidebar and serves a page at
 `/plugins/mes-plan-list` that sends same-origin queries to its local DSH Web
-endpoint. It accepts a start date, end date, and optional status; then it
-renders a plan table, an empty state, or a concise MES error. The plugin only
-permits those inputs, and returns every matching plan by paging through the
-MES CLI.
+endpoint. It takes a date range — typed in, or set with the 最近 7/30/90 天
+presets — plus any combination of statuses and check types, and lists plan id,
+title, customer, check type, executors, hours logged in that window, start and
+end dates, and status.
+
+Results come from a local cache, so a repeat query is instant; **同步最新数据**
+re-fetches from MES. Every matching plan is returned — the host pages through
+the CLI rather than truncating.
 
 ## Local setup
 
@@ -74,16 +80,30 @@ Query results are cached in a per-machine SQLite database at
 leaves your machine and is not part of this repository. The plugin's settings
 panel shows what it covers and can clear it.
 
-## Status filter
+**同步最新数据 also fetches work-hour records, which is why it is slow.** There
+are far more of them than plans — 2026 has 34,258 work records against 953
+plans — so a month takes about a minute. Hours are fetched only for the queried
+date range, and a plain query never fetches them: it shows the hours already
+cached, or `—` when there are none.
 
-| Value | MES status |
-| --- | --- |
-| `0` | Not started (未开始) |
-| `1` | In progress (进行中) |
-| `2` | Finished (结束) |
-| `3` | Overdue and unfinished (已逾期未结束) |
+## Filters
 
-Leave the status field empty to include all statuses.
+Status and check type are both multi-select; selecting none means no
+restriction.
+
+| Status | | Check type | |
+| --- | --- | --- | --- |
+| `0` | 未开始 | `0` | 巡检 |
+| `1` | 进行中 | `1` | 培训 |
+| `2` | 结束 | `2` | 现场人天 |
+| `3` | 已逾期未结束 | `3` | 驻场 |
+| | | `4` | 售前POC |
+| | | `5` | 维保 |
+| | | `6` | 内部事项 |
+
+MES itself cannot combine values — `--status 2,3` returns nothing and
+`--check-type` takes a single int — so the filtering happens locally against
+the cache, which holds the whole window.
 
 ## Workspace layout
 
