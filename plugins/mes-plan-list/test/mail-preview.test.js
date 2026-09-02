@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildMailPreview, MailPreviewStore } from '../src/mail-preview.js'
+import { buildMailPreview, MailPreviewStore, revalidateAndBuildMailPreview } from '../src/mail-preview.js'
 
 const settings = {
   subjectTemplate: '{{executorName}}：{{planCount}} 个逾期计划',
@@ -62,6 +62,47 @@ test('builds one deterministic preview group per executor for overdue plans', ()
   })
 })
 
+test('revalidates every selected plan with MES instead of trusting caller-supplied plans', async () => {
+  const requested = []
+  const preview = await revalidateAndBuildMailPreview({
+    profileKey: 'profile-a',
+    planIds: [2, 1],
+    plans: [
+      { ...plan(1, [{ executorId: '1001', executorName: '张三' }]), companyName: '过期缓存客户' },
+      { ...plan(2, [{ executorId: '1002', executorName: '李四' }]), companyName: '过期缓存客户' },
+    ],
+    mappings,
+    settings,
+  }, async (id) => {
+    requested.push(id)
+    return plan(id, [{ executorId: id === 1 ? '1001' : '1002', executorName: id === 1 ? '张三' : '李四' }])
+  })
+
+  assert.deepEqual(requested, [2, 1])
+  assert.match(preview.groups[0].body, /客户 1/)
+  assert.doesNotMatch(preview.groups[0].body, /过期缓存客户/)
+})
+
+test('blocks the complete preview when MES shows any selected plan is no longer overdue', async () => {
+  const requested = []
+
+  await assert.rejects(
+    revalidateAndBuildMailPreview({
+      profileKey: 'profile-a',
+      planIds: [1, 2],
+      plans: [plan(1, [{ executorId: '1001', executorName: '张三' }]), plan(2, [{ executorId: '1002', executorName: '李四' }])],
+      mappings,
+      settings,
+    }, async (id) => {
+      requested.push(id)
+      return plan(id, [{ executorId: id === 1 ? '1001' : '1002', executorName: id === 1 ? '张三' : '李四' }], id === 2 ? 2 : 3)
+    }),
+    { message: '所选计划必须全部为已逾期未结束状态' },
+  )
+
+  assert.deepEqual(requested, [1, 2])
+})
+
 test('blocks the complete batch when any selected plan is no longer overdue', () => {
   assert.throws(
     () => buildMailPreview({
@@ -112,6 +153,21 @@ test('rejects unknown template variables instead of rendering them', () => {
     }),
     { message: '邮件模板包含未知变量' },
   )
+})
+
+test('rejects malformed or unbalanced template delimiters', () => {
+  for (const subjectTemplate of ['{{unknown', 'unknown}}', '{{{{executorName}}}}', '{{executorName}}}']) {
+    assert.throws(
+      () => buildMailPreview({
+        profileKey: 'profile-a',
+        planIds: [1],
+        plans: [plan(1, [{ executorId: '1001', executorName: '张三' }])],
+        mappings,
+        settings: { ...settings, subjectTemplate },
+      }),
+      { message: '邮件模板包含未知变量' },
+    )
+  }
 })
 
 test('accepts only the three documented template variables', () => {

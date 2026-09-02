@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto'
 
+import { queryPlanById } from './plan-query.js'
+
 const PREVIEW_TTL_MS = 10 * 60 * 1000
 const TEMPLATE_VARIABLES = new Set(['executorName', 'planCount', 'planList'])
+const TEMPLATE_VARIABLE_PATTERN = /\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g
 
 function deepFreeze(value) {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -18,9 +21,10 @@ function maskEmail(email) {
 
 function validateTemplate(template) {
   if (typeof template !== 'string') throw new Error('邮件模板不能为空')
-  for (const match of template.matchAll(/{{\s*([^{}]+?)\s*}}/g)) {
+  for (const match of template.matchAll(TEMPLATE_VARIABLE_PATTERN)) {
     if (!TEMPLATE_VARIABLES.has(match[1])) throw new Error('邮件模板包含未知变量')
   }
+  if (/[{}]/.test(template.replace(TEMPLATE_VARIABLE_PATTERN, ''))) throw new Error('邮件模板包含未知变量')
 }
 
 function renderTemplate(template, variables) {
@@ -96,6 +100,16 @@ export function buildMailPreview({ profileKey, planIds, plans, mappings, setting
         }
       }),
   }
+}
+
+/**
+ * 发送预检的唯一入口：不信任调用方附带的计划数据，而是逐条通过 MES 重新读取后
+ * 才构建邮件预览。query 参数仅用于在测试或上层服务中替换 MES 边界。
+ */
+export async function revalidateAndBuildMailPreview({ profileKey, planIds, mappings, settings }, query = queryPlanById) {
+  if (!Array.isArray(planIds) || planIds.length === 0) throw new Error('请选择至少一条计划')
+  const plans = await Promise.all(planIds.map((id) => query(id)))
+  return buildMailPreview({ profileKey, planIds, plans, mappings, settings })
 }
 
 /** 仅在当前进程有效的、账户绑定的一次性邮件预览。 */
