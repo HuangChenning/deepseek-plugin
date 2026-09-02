@@ -3,6 +3,7 @@ import { renderPage } from './page.js'
 import { readConfig, writeConfig } from './config.js'
 import { isUpdating, readAuthStatus, readCliVersion, readMesVersion, readUpdateStatus, runMesUpdate } from './mes-cli.js'
 import { PlanStore } from './plan-store.js'
+import { queryWorkHours } from './work-hours.js'
 import { checkPluginUpdate, pullPluginUpdate, readPluginVersion } from './self-update.js'
 
 /** 进程内共用一个 store；懒创建让没查过的机器上不出现 .db 文件。 */
@@ -74,18 +75,28 @@ function validateInput(body) {
  * 同步一律按全状态进行（status 留空），状态过滤在本地做——带状态的返回不是窗口
  * 全集，用它做幽灵行清理会误删。
  */
-async function resolvePlans({ startDate, endDate, statuses, checkTypes, refresh }, query, store) {
+async function resolvePlans({ startDate, endDate, statuses, checkTypes, refresh }, query, store, hours) {
   const window = { startDate, endDate }
   const filter = { startDate, endDate, statuses, checkTypes }
+  // 工时只在报工缓存覆盖该窗口时才有；否则留空，页面显示「—」，等一次同步。
+  const withHours = (plans, syncedAt, fromCache) => ({
+    plans,
+    syncedAt,
+    fromCache,
+    hours: store.findCoveringHours(window) === undefined ? null : store.readHours(window),
+  })
+
   if (!refresh) {
     const syncedAt = store.findCoveringSync(window)
-    if (syncedAt !== undefined) return { plans: store.readPlans(filter), syncedAt, fromCache: true }
+    if (syncedAt !== undefined) return withHours(store.readPlans(filter), syncedAt, true)
   }
   // 同步范围扩展到覆盖所有缓存过的窗口，否则窄窗口同步只清掉自己窗口内的幽灵行。
   const syncWindow = store.coveringWindow(window)
   const fresh = await query({ ...syncWindow, status: '' })
   const syncedAt = store.writeWindow(syncWindow, fresh)
-  return { plans: store.readPlans(filter), syncedAt, fromCache: false }
+  // 报工按查询窗口取，不跟着计划窗口扩展：它比计划多一个数量级，扩到全年要几分钟。
+  if (refresh) store.writeHours(window, await hours(window))
+  return withHours(store.readPlans(filter), syncedAt, false)
 }
 
 function validateConfigInput(body) {
@@ -106,6 +117,7 @@ export function createHandlers({
   updateCli = runMesUpdate,
   cliBusy = isUpdating,
   store = defaultStore,
+  hours = queryWorkHours,
   readPlugin = readPluginVersion,
   checkPlugin = checkPluginUpdate,
   updatePlugin = pullPluginUpdate,
@@ -141,7 +153,7 @@ export function createHandlers({
         return
       }
       try {
-        writeJson(response, 200, { ok: true, ...(await resolvePlans(input, query, store())) })
+        writeJson(response, 200, { ok: true, ...(await resolvePlans(input, query, store(), hours)) })
       } catch {
         writeJson(response, 502, { ok: false, error: 'MES 查询失败，请稍后重试' })
       }

@@ -23,7 +23,7 @@ export const DB_PATH = join(homedir(), '.dsh', 'storages', 'mes-plan-list', 'pla
  * 表结构版本。缓存是可重建的派生数据，所以版本不匹配时直接重建空表，让下次查询
  * 重新同步——比写迁移、或让旧行带着空字段参与筛选都更简单也更不容易出错。
  */
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS plans (
@@ -36,6 +36,19 @@ CREATE TABLE IF NOT EXISTS plans (
 );
 CREATE INDEX IF NOT EXISTS plans_window ON plans (start_date, end_date);
 CREATE TABLE IF NOT EXISTS windows (
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  synced_at TEXT NOT NULL,
+  PRIMARY KEY (start_date, end_date)
+);
+CREATE TABLE IF NOT EXISTS work_hours (
+  id INTEGER PRIMARY KEY,
+  plan_id INTEGER,
+  work_date TEXT NOT NULL,
+  hours REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS work_hours_window ON work_hours (work_date);
+CREATE TABLE IF NOT EXISTS hour_windows (
   start_date TEXT NOT NULL,
   end_date TEXT NOT NULL,
   synced_at TEXT NOT NULL,
@@ -75,7 +88,8 @@ export class PlanStore {
       const [{ user_version: version }] = this.#db.prepare('PRAGMA user_version').all()
       if (version !== SCHEMA_VERSION) {
         // 旧结构直接丢弃重建：缓存可以从 MES 重新取回，迁移的复杂度不值得。
-        this.#db.exec('DROP TABLE IF EXISTS plans; DROP TABLE IF EXISTS windows;')
+        this.#db.exec(`DROP TABLE IF EXISTS plans; DROP TABLE IF EXISTS windows;
+                       DROP TABLE IF EXISTS work_hours; DROP TABLE IF EXISTS hour_windows;`)
         this.#db.exec(SCHEMA)
         this.#db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
       } else {
@@ -120,6 +134,56 @@ export class PlanStore {
     }
   }
 
+  /**
+   * 报工缓存。与计划分开：报工比计划多一个数量级（全年 3.4 万条 vs 950 条），
+   * 拉一次全年要几分钟，所以它按需加载，不跟着计划同步走。
+   *
+   * 报工是单日事件，MES 的 `--from/--to` 按 start 的日期闭区间过滤（已实测），
+   * 因此子窗口的报工天然是父窗口的子集，可以和计划一样用「已同步窗口覆盖当前
+   * 窗口」来判断能否走缓存。
+   */
+  findCoveringHours({ startDate, endDate }) {
+    const row = this.#open()
+      .prepare(`SELECT synced_at FROM hour_windows
+                WHERE start_date <= ? AND end_date >= ?
+                ORDER BY synced_at DESC LIMIT 1`)
+      .get(startDate, endDate)
+    return row === undefined ? undefined : row.synced_at
+  }
+
+  /** 窗口内每个计划的报工工时合计，返回 { [planId]: hours }。 */
+  readHours({ startDate, endDate }) {
+    const rows = this.#open()
+      .prepare(`SELECT plan_id, SUM(hours) AS total FROM work_hours
+                WHERE plan_id IS NOT NULL AND work_date >= ? AND work_date <= ?
+                GROUP BY plan_id`)
+      .all(String(startDate).slice(0, 10), String(endDate).slice(0, 10))
+    return Object.fromEntries(rows.map((row) => [row.plan_id, row.total]))
+  }
+
+  /** 写入一个窗口的报工明细，语义与 writeWindow 相同（先清窗口再写）。 */
+  writeHours({ startDate, endDate }, records, syncedAt = new Date().toISOString()) {
+    const db = this.#open()
+    db.exec('BEGIN')
+    try {
+      db.prepare('DELETE FROM work_hours WHERE work_date >= ? AND work_date <= ?')
+        .run(String(startDate).slice(0, 10), String(endDate).slice(0, 10))
+      const insert = db.prepare('INSERT OR REPLACE INTO work_hours (id, plan_id, work_date, hours) VALUES (?, ?, ?, ?)')
+      for (const record of records) {
+        if (!Number.isInteger(record.id)) continue
+        insert.run(record.id, record.planId ?? null, record.workDate, record.hours)
+      }
+      db.prepare(`INSERT INTO hour_windows (start_date, end_date, synced_at) VALUES (?, ?, ?)
+                  ON CONFLICT(start_date, end_date) DO UPDATE SET synced_at = excluded.synced_at`)
+        .run(startDate, endDate, syncedAt)
+      db.exec('COMMIT')
+    } catch (error) {
+      db.exec('ROLLBACK')
+      throw error
+    }
+    return syncedAt
+  }
+
   /** 缓存概况：覆盖的日期范围、计划条数、最近一次同步时间。 */
   summary() {
     const db = this.#open()
@@ -139,6 +203,8 @@ export class PlanStore {
     try {
       db.exec('DELETE FROM plans')
       db.exec('DELETE FROM windows')
+      db.exec('DELETE FROM work_hours')
+      db.exec('DELETE FROM hour_windows')
       db.exec('COMMIT')
     } catch (error) {
       db.exec('ROLLBACK')

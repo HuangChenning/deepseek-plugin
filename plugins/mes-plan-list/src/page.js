@@ -94,6 +94,11 @@ export function renderPage() {
       background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500;
     }
     .picker label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .chip {
+      background: transparent; border: 1px solid var(--border); border-radius: 999px;
+      padding: 3px 11px; font-size: 12px; font-weight: 400; color: var(--muted); cursor: pointer;
+    }
+    .chip:hover { background: var(--surface-sunken); border-color: var(--accent); color: var(--text); filter: none; }
 
     .status { margin: 18px 0 12px; min-height: 20px; font-size: 13px; color: var(--muted); }
     .status[data-tone="error"] {
@@ -239,6 +244,13 @@ export function renderPage() {
       <button type="submit">查询</button>
       <button type="button" id="sync" class="ghost">同步最新数据</button>
 
+      <div class="picker" data-picker="range">
+        <span class="picker-label">快捷</span>
+        <button type="button" class="chip" data-days="7">最近 7 天</button>
+        <button type="button" class="chip" data-days="30">最近 30 天</button>
+        <button type="button" class="chip" data-days="90">最近 90 天</button>
+      </div>
+
       <div class="picker" data-picker="status">
         <span class="picker-label">状态</span>
         <label><input type="checkbox" value="0"><span>未开始</span></label>
@@ -381,6 +393,9 @@ export function renderPage() {
     const DAY_MS = 24 * 60 * 60 * 1000
     const sync = document.querySelector('#sync')
 
+    /** 最近一次查询的结果，供「加载报工工时」就地补上工时后重绘。 */
+    let lastPlans = []
+
     /** 某个多选组里被勾中的值；空数组表示不限。 */
     const picked = (name) => Array.from(
       document.querySelectorAll('[data-picker="' + name + '"] input:checked'),
@@ -399,7 +414,7 @@ export function renderPage() {
     const runQuery = async (refresh) => {
       submit.disabled = true
       sync.disabled = true
-      setStatus(refresh ? '正在从 MES 同步…' : '正在查询…')
+      setStatus(refresh ? '正在从 MES 同步计划与报工工时，时间范围越大越慢…' : '正在查询…')
       results.innerHTML = ''
       const values = new FormData(form)
       try {
@@ -416,6 +431,12 @@ export function renderPage() {
         })
         const payload = await response.json()
         if (!response.ok || !payload.ok) throw new Error(payload.error || '查询失败，请稍后重试')
+        // 工时随窗口变化，所以由服务端按当前窗口给出；没有报工缓存时为 null，
+        // 表格显示「—」，同步一次即可补上。
+        lastPlans = payload.plans
+        if (payload.hours !== null && payload.hours !== undefined) {
+          for (const plan of lastPlans) plan.windowHours = payload.hours[plan.id] ?? 0
+        }
         const freshness = describeFreshness(payload.syncedAt)
         setStatus('共 ' + payload.plans.length + ' 条。' + (freshness === '' ? '' : ' ' + freshness.text),
           freshness !== '' && freshness.stale ? 'stale' : undefined)
@@ -434,6 +455,20 @@ export function renderPage() {
       event.preventDefault()
       runQuery(false)
     })
+
+    // 日期快捷选择：结束日期取今天，开始日期往前推 N-1 天，含今天共 N 天。
+    const iso = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+    for (const chip of document.querySelectorAll('.chip[data-days]')) {
+      chip.addEventListener('click', () => {
+        const days = Number(chip.dataset.days)
+        const today = new Date()
+        const from = new Date(today)
+        from.setDate(from.getDate() - (days - 1))
+        form.startDate.value = iso(from)
+        form.endDate.value = iso(today)
+        runQuery(false)
+      })
+    }
 
     sync.addEventListener('click', () => {
       if (form.reportValidity()) runQuery(true)
