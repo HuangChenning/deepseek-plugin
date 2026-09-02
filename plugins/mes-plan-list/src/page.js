@@ -85,6 +85,10 @@ export function renderPage() {
       color: var(--late-fg); background: var(--late-bg); border-radius: 8px;
       padding: 10px 12px; margin-bottom: 0;
     }
+    .status[data-tone="stale"] {
+      color: var(--warn-fg); background: var(--warn-bg); border-radius: 8px;
+      padding: 10px 12px;
+    }
 
     .table-wrap {
       background: var(--surface); border: 1px solid var(--border);
@@ -208,6 +212,7 @@ export function renderPage() {
         </select>
       </label>
       <button type="submit">查询</button>
+      <button type="button" id="sync" class="ghost">同步最新数据</button>
     </form>
 
     <p id="status" class="status" role="status"></p>
@@ -329,27 +334,56 @@ export function renderPage() {
         + '</tr></thead><tbody>' + plans.map(renderRow).join('') + '</tbody></table></div>'
     }
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault()
+    const DAY_MS = 24 * 60 * 60 * 1000
+    const sync = document.querySelector('#sync')
+
+    /** 数据是本地缓存，必须让用户看见它有多新，否则会拿陈旧数据做判断。 */
+    const describeFreshness = (syncedAt) => {
+      const at = new Date(syncedAt)
+      if (Number.isNaN(at.getTime())) return ''
+      const stale = Date.now() - at.getTime() > DAY_MS
+      const shown = at.toLocaleString('zh-CN', { hour12: false })
+      return { text: '数据更新至 ' + shown + (stale ? '，已超过 1 天，请及时更新数据。' : '。'), stale }
+    }
+
+    const runQuery = async (refresh) => {
       submit.disabled = true
-      setStatus('正在查询…')
+      sync.disabled = true
+      setStatus(refresh ? '正在从 MES 同步…' : '正在查询…')
       results.innerHTML = ''
       const values = new FormData(form)
       try {
         const response = await fetch('/api/plugins/mes-plan-list/query', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ startDate: values.get('startDate'), endDate: values.get('endDate'), status: values.get('status') }),
+          body: JSON.stringify({
+            startDate: values.get('startDate'),
+            endDate: values.get('endDate'),
+            status: values.get('status'),
+            refresh,
+          }),
         })
         const payload = await response.json()
         if (!response.ok || !payload.ok) throw new Error(payload.error || '查询失败，请稍后重试')
-        setStatus('共 ' + payload.plans.length + ' 条。')
+        const freshness = describeFreshness(payload.syncedAt)
+        setStatus('共 ' + payload.plans.length + ' 条。' + (freshness === '' ? '' : ' ' + freshness.text),
+          freshness !== '' && freshness.stale ? 'stale' : undefined)
         renderPlans(payload.plans)
       } catch (error) {
         setStatus(error.message || '查询失败，请稍后重试', 'error')
       } finally {
         submit.disabled = false
+        sync.disabled = false
       }
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault()
+      runQuery(false)
+    })
+
+    sync.addEventListener('click', () => {
+      if (form.reportValidity()) runQuery(true)
     })
 
     const cliVersion = document.querySelector('#cli-version')

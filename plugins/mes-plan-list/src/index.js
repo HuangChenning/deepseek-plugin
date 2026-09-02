@@ -2,6 +2,14 @@ import { queryPlans } from './plan-query.js'
 import { renderPage } from './page.js'
 import { readConfig, writeConfig } from './config.js'
 import { isUpdating, readAuthStatus, readCliVersion, readMesVersion, readUpdateStatus, runMesUpdate } from './mes-cli.js'
+import { PlanStore } from './plan-store.js'
+
+/** 进程内共用一个 store；懒创建让没查过的机器上不出现 .db 文件。 */
+let sharedStore
+function defaultStore() {
+  sharedStore ??= new PlanStore()
+  return sharedStore
+}
 
 const MAX_BODY_BYTES = 16 * 1024
 const JSON_CONTENT_TYPE = /^application\/json(?:\s*;|$)/i
@@ -35,14 +43,32 @@ async function readJson(request) {
 
 function validateInput(body) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new RequestError('请求参数无效')
-  if (Object.keys(body).some((key) => !['startDate', 'endDate', 'status'].includes(key))) throw new RequestError('请求参数无效')
+  if (Object.keys(body).some((key) => !['startDate', 'endDate', 'status', 'refresh'].includes(key))) throw new RequestError('请求参数无效')
+  if (body.refresh !== undefined && typeof body.refresh !== 'boolean') throw new RequestError('请求参数无效')
   if (body.startDate === undefined || body.startDate === '') throw new RequestError('开始日期不能为空')
   if (typeof body.startDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.startDate)) throw new RequestError('开始日期格式错误')
   if (body.endDate === undefined || body.endDate === '') throw new RequestError('结束日期不能为空')
   if (typeof body.endDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.endDate)) throw new RequestError('结束日期格式错误')
   if (body.startDate > body.endDate) throw new RequestError('开始日期不能晚于结束日期')
   if (body.status !== undefined && (typeof body.status !== 'string' || !['', '0', '1', '2', '3'].includes(body.status))) throw new RequestError('状态值无效')
-  return { startDate: body.startDate, endDate: body.endDate, status: body.status ?? '' }
+  return { startDate: body.startDate, endDate: body.endDate, status: body.status ?? '', refresh: body.refresh === true }
+}
+
+/**
+ * 读缓存优先：能被已同步窗口覆盖就本地取，否则打 MES 取回并落盘。
+ *
+ * 同步一律按全状态进行（status 留空），状态过滤在本地做——带状态的返回不是窗口
+ * 全集，用它做幽灵行清理会误删。
+ */
+async function resolvePlans({ startDate, endDate, status, refresh }, query, store) {
+  const window = { startDate, endDate }
+  if (!refresh) {
+    const syncedAt = store.findCoveringSync(window)
+    if (syncedAt !== undefined) return { plans: store.readPlans({ startDate, endDate, status }), syncedAt, fromCache: true }
+  }
+  const fresh = await query({ ...window, status: '' })
+  const syncedAt = store.writeWindow(window, fresh)
+  return { plans: store.readPlans({ startDate, endDate, status }), syncedAt, fromCache: false }
 }
 
 function validateConfigInput(body) {
@@ -62,6 +88,7 @@ export function createHandlers({
   readCliInfo = readCliVersion,
   updateCli = runMesUpdate,
   cliBusy = isUpdating,
+  store = defaultStore,
 } = {}) {
   return {
     async handlePage(request, response) {
@@ -94,8 +121,7 @@ export function createHandlers({
         return
       }
       try {
-        const plans = await query(input)
-        writeJson(response, 200, { ok: true, plans })
+        writeJson(response, 200, { ok: true, ...(await resolvePlans(input, query, store())) })
       } catch {
         writeJson(response, 502, { ok: false, error: 'MES 查询失败，请稍后重试' })
       }

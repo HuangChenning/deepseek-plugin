@@ -23,8 +23,14 @@ All notable changes to this project will be documented in this file.
   while the binary is being replaced.
 - Workspace CI running the tests and a whitespace check.
 
+- Per-machine SQLite cache (`node:sqlite`, created lazily on the first query)
+  with a manual **同步最新数据** action, a visible sync time, and a prompt once
+  the data is over a day old.
+
 ### Fixed
 
+- Plan counts were inflated: MES repeats a few records across page boundaries
+  (5 duplicate ids in a 958-row year), so results are now de-duplicated by id.
 - Plugin was never loaded by DSH: `package.json` declared no `dsh.bundle.patch`,
   so `dsh plugin add` installed it as a dependency without registering it in the
   profile bundle list, and both routes returned 404.

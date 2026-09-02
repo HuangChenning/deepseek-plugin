@@ -50,6 +50,48 @@ Open <http://127.0.0.1:3080> and click **实施计划** in the sidebar, or open
 end date, optionally select a status, and submit the form. A query displays a
 plan table, an empty state, or a concise MES error.
 
+## Local cache
+
+Results are cached in a per-machine SQLite database at
+`~/.dsh/storages/mes-plan-list/plans.db` (Node's built-in `node:sqlite`, no
+dependency). The file is **created lazily**: a machine that has never run a
+query has no database. It is local only — never committed, never synced between
+machines.
+
+Queries read the cache when a previously synced window covers them, and fall
+back to MES otherwise, storing what they fetch. The first query on a machine
+therefore behaves exactly like the uncached version — no "sync first" step.
+**同步最新数据** re-fetches the current date range and stores it.
+
+The page always shows how current the data is, and says
+`已超过 1 天，请及时更新数据` once the sync is older than a day.
+
+### Why the window logic is safe
+
+MES's `--start-date X --end-date Y` is **containment**, not overlap: it returns
+only plans with `startDate >= X` and `endDate <= Y`, and it reads both bounds as
+midnight — a plan ending `2026-07-31 18:00:00` is outside a window ending
+`2026-07-31`. Verified against the live CLI.
+
+That gives window monotonicity: if W1 fits inside W2, `result(W1) ⊆ result(W2)`.
+So a wide synced window can serve any narrower query exactly, by re-applying the
+same two comparisons locally — the rule is simple enough to reproduce without
+guessing at server behaviour. Status filtering is likewise local; syncing always
+fetches **all** statuses, because a status-filtered response is not the full
+window and would make the cleanup below delete live rows.
+
+### Deletions, and the limit of a narrow sync
+
+MES does not announce deletions, so after syncing window W the store drops rows
+inside W that W's response did not contain — precise, because that response is
+W's complete set.
+
+A narrow sync therefore only cleans ghosts inside its own window; a plan deleted
+outside it stays cached until a window covering it is synced. This does not
+silently show stale data as fresh: freshness comes from the sync that covers the
+queried window, so a narrow sync does not refresh a wider window's timestamp,
+and querying the wider range still reports the older time and prompts a resync.
+
 ## Settings
 
 The page's **设置** panel configures the absolute path to the `mes` binary.
