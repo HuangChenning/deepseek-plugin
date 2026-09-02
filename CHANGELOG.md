@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-02
+
+**Queries returned far fewer plans than they should have.** A window that ought
+to list hundreds returned six, and 进行中 plans were missing entirely. If you
+drew conclusions from an earlier version, re-check them.
+
+### Fixed
+
+- Plans are matched by **overlap** with the queried window, not by falling
+  entirely inside it. MES's own filter is containment-only, so a plan running
+  May → August was absent from an August query.
+- Containment applied to the end date too, which dropped every 进行中 plan as a
+  class — their end dates lie in the future, outside any window ending today.
+
+### Changed
+
+- Syncing fetches **every** plan and replaces the table wholesale, instead of
+  fetching the queried range. Widening the sync window by a fixed margin was
+  tried first and still missed plans, because spans exceed any margin worth
+  paying for. The local database is now a complete copy, so any window and
+  filter combination is answered locally and instantly, and deletion detection
+  is trivial: whatever MES did not return no longer exists.
+- 结束 plans are excluded everywhere, and that filter chip is gone.
+
+### Notes
+
+- The cache schema changed again, so existing caches are dropped on first use.
+  The next query runs a full sync — around 80 seconds — and after that any
+  window answers from the local copy without another fetch.
+
 ## [0.2.0] - 2026-09-02
 
 ### Added
@@ -92,3 +122,4 @@ published to npm or the DSH plugin market.
 
 [0.1.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.1.0
 [0.2.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.2.0
+[0.3.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.3.0
