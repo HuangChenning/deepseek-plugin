@@ -72,6 +72,16 @@ export function buildMailPreview({ profileKey, planIds, plans, mappings, setting
   validateTemplate(settings?.bodyTemplate)
 
   const mappingById = new Map((mappings ?? []).map((mapping) => [String(mapping.executorId), mapping]))
+  // MES 会给同一个人新建账号，ID 变而姓名不变（这正是同一人有多个 executorId 的来源）。
+  // 只按 ID 匹配的话，映射会在换号时静默失效，用户得重新导入才知道。按 ID 找不到时
+  // 回退到姓名，让映射跟着人走而不是跟着账号走。
+  const mappingByName = new Map()
+  for (const mapping of mappings ?? []) {
+    const name = String(mapping?.executorName ?? '').trim()
+    if (name !== '' && !mappingByName.has(name)) mappingByName.set(name, mapping)
+  }
+  const findMapping = (executorId, executorName) =>
+    mappingById.get(executorId) ?? (executorName === '' ? undefined : mappingByName.get(executorName))
   const groups = new Map()
   const missingNames = new Set()
   const nameless = []
@@ -88,7 +98,7 @@ export function buildMailPreview({ profileKey, planIds, plans, mappings, setting
       }
       if (executorIds.has(executorId)) continue
       executorIds.add(executorId)
-      const mapping = mappingById.get(executorId)
+      const mapping = findMapping(executorId, executorName)
       if (mapping === undefined || typeof mapping.email !== 'string' || mapping.email.trim() === '') {
         // 没有姓名的执行人永远配不出映射（映射是按姓名建立的），要分开提示。
         if (executorName === '') nameless.push({ planId: plan.id, executorId })

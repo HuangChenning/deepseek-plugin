@@ -210,7 +210,12 @@ you to supply it would be asking for something you cannot obtain. The server
 resolves each name back to an ID from the plan cache.
 
 One person can hold several MES accounts (an old and a current one), so a name
-may resolve to several IDs. All of them are stored against the same address,
+may resolve to several IDs. For the same reason a stored mapping is matched by
+executor ID **first and by name second**: when MES issues someone a new account
+the ID changes while the name does not, and an ID-only match would let the
+mapping fail silently until the workbook was imported again. The consequence to
+be aware of is that two genuinely different people sharing a name would share
+an address; check the preview if that is possible in your organisation. All of them are stored against the same address,
 and the preview merges them: **one person receives one email per batch**, no
 matter how many accounts their overdue plans are spread across.
 

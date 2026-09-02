@@ -253,3 +253,33 @@ test('expires preview tokens and retains an immutable snapshot', () => {
   assert.deepEqual(consumed, { groups: [{ executorId: '1001', planIds: [1] }] })
   assert.throws(() => { consumed.groups[0].planIds.push(2) }, TypeError)
 })
+
+test('a mapping follows the person when MES issues them a new account id', () => {
+  // MES 换号后 executorId 变了、姓名没变。只按 ID 匹配会让映射静默失效，
+  // 用户看到「还没有邮箱映射」却发现人明明在表里——按姓名回退才对得上。
+  const preview = buildMailPreview({
+    profileKey: 'profile-a',
+    planIds: [1],
+    plans: [plan(1, [{ executorId: '4584', executorName: '刘明民' }])],
+    mappings: [{ executorId: '76', executorName: '刘明民', email: 'lmm@example.invalid' }],
+    settings,
+  })
+
+  assert.equal(preview.groups.length, 1)
+  assert.equal(preview.groups[0].maskedEmail, 'l***@example.invalid')
+})
+
+test('the id match still wins over a same-name fallback', () => {
+  const preview = buildMailPreview({
+    profileKey: 'profile-a',
+    planIds: [1],
+    plans: [plan(1, [{ executorId: '1001', executorName: '张三' }])],
+    mappings: [
+      { executorId: '9999', executorName: '张三', email: 'stale@example.invalid' },
+      { executorId: '1001', executorName: '张三', email: 'current@example.invalid' },
+    ],
+    settings,
+  })
+
+  assert.equal(preview.groups[0].maskedEmail, 'c***@example.invalid')
+})
