@@ -2,6 +2,9 @@
 
 最后更新：2026-09-02
 
+> 五项新需求（mes 路径配置、登录检测、插件自更新、mes CLI 更新、SQLite 同步）
+> 的方案与实施顺序见 [roadmap.md](./roadmap.md)。本文只记录既有工作的遗留项。
+
 `main` 已包含 DSH Web 插件 `mes-plan-list`。本轮修复了插件从未被 DSH 加载的问题、
 补上了侧边栏入口、并重做了页面设计。以下是仍未完成的事项。
 
@@ -27,10 +30,8 @@
 
 ## 必须补充验证
 
-- [ ] 确认 DSH 进程的 PATH 能找到 `mes`。查询用 `execFile('mes', args)`，依赖
-      PATH 解析；本次验证是从终端启动 `dsh --profile web`（PATH 含
-      `/opt/homebrew/bin`）。若从 GUI 或 launchd 启动，可能解析失败并统一报
-      「MES 查询失败」。届时需要考虑可配置的绝对路径。
+- [x] ~~确认 DSH 进程的 PATH 能找到 `mes`~~。已由需求 1 解决：页面设置面板可配
+      置 mes 绝对路径，留空才回落到 PATH。见 [roadmap.md](./roadmap.md)。
 
 ## 工程化增强（尚未实现）
 

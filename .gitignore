@@ -1,0 +1,14 @@
+# 本地 SQLite 缓存：每台机器在首次查询时自己生成，绝不入库。
+# 正常位置是 ~/.dsh/storages/mes-plan-list/plans.db（在工作区之外），
+# 这里是第二道保险，防止有人把它拷进仓库。
+*.db
+*.db-shm
+*.db-wal
+
+# 本地 agent 指令文件：约定同步更新但不提交（见 docs/backlog.md）。
+AGENTS.md
+CLAUDE.md
+
+node_modules/
+
+.DS_Store

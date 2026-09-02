@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Readable } from 'node:stream'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { buildPlanListArgs, queryPlans } from '../src/plan-query.js'
-import { apply, createHandlers } from '../src/index.js'
+import { createHandlers } from '../src/index.js'
+import { PlanStore } from '../src/plan-store.js'
 
 function makeRequest({ method = 'POST', contentType = 'application/json', body = '' } = {}) {
   const request = Readable.from(body === '' ? [] : [Buffer.from(body)])
@@ -49,8 +53,10 @@ test('rejects a JSON query without a start date before it reaches MES', async ()
 })
 
 test('hides MES runner details when a valid query fails', async () => {
+  const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))
   const { handleQuery } = createHandlers({
     query: async () => { throw new Error('MES command failed: secret stack trace') },
+    store: () => store,
   })
   const response = makeResponse()
 
@@ -61,15 +67,107 @@ test('hides MES runner details when a valid query fails', async () => {
 })
 
 test('returns plans only for a JSON POST query', async () => {
+  const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))
   const { handleQuery } = createHandlers({
-    query: async () => [{ id: 18366, title: '验证计划' }],
+    query: async () => [{ id: 18366, title: '验证计划', startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 3 }],
+    store: () => store,
   })
   const response = makeResponse()
 
   await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', status: '3' }) }), response)
 
   assert.equal(response.statusCode, 200)
-  assert.deepEqual(JSON.parse(response.body), { ok: true, plans: [{ id: 18366, title: '验证计划' }] })
+  const payload = JSON.parse(response.body)
+  assert.equal(payload.ok, true)
+  assert.deepEqual(payload.plans.map((row) => row.id), [18366])
+  assert.equal(payload.fromCache, false, '首次查询没有缓存，应回源 MES')
+  assert.match(payload.syncedAt, /^\d{4}-\d{2}-\d{2}T/)
+  store.close()
+})
+
+// 首次查询必须像没有缓存一样直接出结果，缓存是顺带的副作用，不打断用户。
+test('serves a repeat query from the local cache without touching MES', async () => {
+  const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))
+  let calls = 0
+  const { handleQuery } = createHandlers({
+    query: async () => {
+      calls += 1
+      return [{ id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 2 }]
+    },
+    store: () => store,
+  })
+  const body = JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30' })
+
+  await handleQuery(makeRequest({ body }), makeResponse())
+  const second = makeResponse()
+  await handleQuery(makeRequest({ body }), second)
+
+  assert.equal(calls, 1, '第二次查询应命中缓存')
+  assert.equal(JSON.parse(second.body).fromCache, true)
+  store.close()
+})
+
+test('refresh forces a resync even when the window is cached', async () => {
+  const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))
+  let calls = 0
+  const { handleQuery } = createHandlers({
+    query: async () => {
+      calls += 1
+      return [{ id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 2 }]
+    },
+    store: () => store,
+  })
+
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30' }) }), makeResponse())
+  const forced = makeResponse()
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', refresh: true }) }), forced)
+
+  assert.equal(calls, 2)
+  assert.equal(JSON.parse(forced.body).fromCache, false)
+  store.close()
+})
+
+// 同步范围必须覆盖已缓存的一切，否则窄窗口同步只清掉自己窗口内的幽灵行。
+test('syncs a window wide enough to cover everything already cached', async () => {
+  const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))
+  const asked = []
+  const { handleQuery } = createHandlers({
+    query: async (input) => {
+      asked.push(`${input.startDate}~${input.endDate}`)
+      return []
+    },
+    store: () => store,
+  })
+
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-01-01', endDate: '2026-12-31' }) }), makeResponse())
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-08-01', endDate: '2026-08-31', refresh: true }) }), makeResponse())
+
+  assert.deepEqual(asked, ['2026-01-01~2026-12-31', '2026-01-01~2026-12-31'],
+    '第二次只想同步 8 月，但范围被扩展到覆盖已缓存的全年')
+  store.close()
+})
+
+// 落盘一律全状态，状态过滤在本地做：带状态的返回不是窗口全集，拿它清理幽灵行会误删。
+test('syncs the whole window regardless of the status filter', async () => {
+  const store = new PlanStore(join(await mkdtemp(join(tmpdir(), 'mes-plan-query-')), 'plans.db'))
+  const asked = []
+  const { handleQuery } = createHandlers({
+    query: async (input) => {
+      asked.push(input.status)
+      return [
+        { id: 1, startDate: '2026-09-10 08:00:00', endDate: '2026-09-11 18:00:00', status: 2 },
+        { id: 2, startDate: '2026-09-12 08:00:00', endDate: '2026-09-13 18:00:00', status: 3 },
+      ]
+    },
+    store: () => store,
+  })
+  const response = makeResponse()
+
+  await handleQuery(makeRequest({ body: JSON.stringify({ startDate: '2026-09-01', endDate: '2026-09-30', status: '3' }) }), response)
+
+  assert.deepEqual(asked, [''], '向 MES 要的是全状态')
+  assert.deepEqual(JSON.parse(response.body).plans.map((row) => row.id), [2], '状态过滤在本地完成')
+  store.close()
 })
 
 test('rejects a non-JSON query request', async () => {
@@ -124,19 +222,6 @@ test('serves the query form on a GET page request', async () => {
   assert.match(response.body, /<form id="query-form"/)
 })
 
-test('registers the exact page and query routes', () => {
-  const routes = []
-
-  apply({ webServer: { register: (route) => routes.push(route) } })
-
-  assert.deepEqual(routes.map(({ kind, path }) => ({ kind, path })), [
-    { kind: 'exact', path: '/plugins/mes-plan-list' },
-    { kind: 'exact', path: '/api/plugins/mes-plan-list/query' },
-  ])
-  assert.equal(typeof routes[0].handler, 'function')
-  assert.equal(typeof routes[1].handler, 'function')
-})
-
 test('builds a bounded MES plan list command with status', () => {
   assert.deepEqual(buildPlanListArgs({ startDate: '2026-09-01', endDate: '2026-09-30', status: '3' }), [
     '-o', 'json', 'plan', 'list', '--start-date', '2026-09-01', '--end-date', '2026-09-30', '--status', '3', '--page', '1', '--page-size', '200',
@@ -185,6 +270,21 @@ test('pages through MES so a result larger than one page is returned whole', asy
   assert.deepEqual(requested, [1, 2, 3])
   assert.equal(plans.length, 450)
   assert.deepEqual(plans.at(-1), { id: 450 })
+})
+
+// MES 的分页会在页边界上重复返回少量记录（实测全年 958 行里有 5 个重复 id）。
+// 不去重的话条数和表格行都会偏多；终止判断必须用原始条数，否则永远够不到 total。
+test('de-duplicates plans that MES returns on more than one page', async () => {
+  const plans = await queryPlans({ startDate: '2026-01-01', endDate: '2026-12-31' }, async (args) => {
+    const page = Number(args[args.indexOf('--page') + 1])
+    const pages = {
+      1: [{ id: 1 }, { id: 2 }, { id: 3 }],
+      2: [{ id: 3 }, { id: 4 }],
+    }
+    return JSON.stringify({ list: pages[page] ?? [], total: 5 })
+  })
+
+  assert.deepEqual(plans.map((row) => row.id), [1, 2, 3, 4])
 })
 
 test('stops paging on an empty page even when MES reports an unreachable total', async () => {

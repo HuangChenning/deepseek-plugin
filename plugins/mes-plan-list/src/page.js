@@ -23,6 +23,7 @@ export function renderPage() {
       --run-bg: #e7eefb; --run-fg: #24528f;
       --idle-bg: #eeecea; --idle-fg: #6b645c;
       --late-bg: #fdeceb; --late-fg: #a32f26;
+      --warn-bg: #fdf3e3; --warn-fg: #8a5a1a;
     }
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
@@ -33,6 +34,7 @@ export function renderPage() {
         --run-bg: #172438; --run-fg: #8fb3e8;
         --idle-bg: #2a2725; --idle-fg: #a09890;
         --late-bg: #3a1d1a; --late-fg: #ec9086;
+        --warn-bg: #35291a; --warn-fg: #e3b273;
       }
     }
     :root[data-theme="dark"] {
@@ -43,6 +45,7 @@ export function renderPage() {
       --run-bg: #172438; --run-fg: #8fb3e8;
       --idle-bg: #2a2725; --idle-fg: #a09890;
       --late-bg: #3a1d1a; --late-fg: #ec9086;
+      --warn-bg: #35291a; --warn-fg: #e3b273;
     }
 
     * { box-sizing: border-box; }
@@ -82,6 +85,10 @@ export function renderPage() {
       color: var(--late-fg); background: var(--late-bg); border-radius: 8px;
       padding: 10px 12px; margin-bottom: 0;
     }
+    .status[data-tone="stale"] {
+      color: var(--warn-fg); background: var(--warn-bg); border-radius: 8px;
+      padding: 10px 12px;
+    }
 
     .table-wrap {
       background: var(--surface); border: 1px solid var(--border);
@@ -115,14 +122,101 @@ export function renderPage() {
       background: var(--surface); border: 1px dashed var(--border); border-radius: 12px;
       padding: 44px 20px; text-align: center; color: var(--muted);
     }
+
+    .head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+    .ghost {
+      background: transparent; color: var(--muted); border: 1px solid var(--border);
+      font-weight: 400; padding: 6px 14px;
+    }
+    .ghost:hover { background: var(--surface); color: var(--text); filter: none; }
+
+    .banner {
+      display: none; align-items: baseline; gap: 8px; flex-wrap: wrap;
+      background: var(--warn-bg); color: var(--warn-fg);
+      border-radius: 10px; padding: 11px 14px; margin-bottom: 16px; font-size: 13px;
+    }
+    .banner[data-show] { display: flex; }
+    .banner code {
+      background: var(--surface); color: var(--text); border-radius: 5px;
+      padding: 1px 6px; font-size: 12px;
+    }
+
+    .panel {
+      display: none; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow);
+    }
+    .panel[data-show] { display: block; }
+    .panel h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+    .panel .hint { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+    .panel .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .panel .field { flex: 1 1 380px; }
+    .panel input { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    .panel .feedback { margin: 10px 0 0; font-size: 12px; color: var(--muted); min-height: 16px; }
+    .panel .feedback[data-tone="error"] { color: var(--late-fg); }
+    .panel .feedback[data-tone="ok"] { color: var(--ok-fg); }
+    .panel .rule { border: none; border-top: 1px solid var(--border); margin: 18px 0 14px; }
+    .panel .version {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+      color: var(--muted); margin-right: auto;
+    }
+    .panel .output {
+      margin: 12px 0 0; padding: 10px 12px; border-radius: 8px;
+      background: var(--surface-sunken); color: var(--muted);
+      font-size: 12px; white-space: pre-wrap; overflow-x: auto;
+    }
   </style>
 </head>
 <body>
   <div class="shell">
-    <header>
-      <h1>MES 实施计划</h1>
-      <p class="lede">通过本机 mes CLI 只读查询。</p>
+    <header class="head-row">
+      <div>
+        <h1>MES 实施计划</h1>
+        <p class="lede">通过本机 mes CLI 只读查询。</p>
+      </div>
+      <button type="button" id="settings-toggle" class="ghost">设置</button>
     </header>
+
+    <p id="auth-banner" class="banner" role="status"></p>
+
+    <section id="settings" class="panel">
+      <h2>插件版本</h2>
+      <p class="hint">更新会在本机仓库执行 <code>git pull --ff-only</code>，用你已有的 git 凭据；工作区有未提交改动时会拒绝。更新后需重启 DSH 才生效。</p>
+      <div class="row">
+        <span id="plugin-version" class="version">读取中…</span>
+        <button type="button" id="check-plugin" class="ghost">检查更新</button>
+        <button type="button" id="update-plugin" hidden>更新插件</button>
+      </div>
+      <p id="plugin-feedback" class="feedback" role="status"></p>
+
+      <hr class="rule">
+      <h2>mes CLI 路径</h2>
+      <p class="hint">留空则使用 PATH 中的 <code>mes</code>。填绝对路径可解决 DSH 从图形界面启动时找不到 mes 的情况。保存前会执行该路径的 <code>--version</code> 确认它确实是 mes。</p>
+      <div class="row">
+        <label class="field"><span>绝对路径</span><input id="mes-path" type="text" placeholder="/opt/homebrew/bin/mes" spellcheck="false"></label>
+        <button type="button" id="save-config">保存</button>
+      </div>
+      <p id="config-feedback" class="feedback" role="status"></p>
+
+      <hr class="rule">
+      <h2>mes CLI 版本</h2>
+      <p class="hint">检查更新会访问 mes 的更新服务器，只在点击时发生。更新会替换本机的 mes 二进制，期间查询会被暂时拒绝。</p>
+      <div class="row">
+        <span id="cli-version" class="version">读取中…</span>
+        <button type="button" id="check-cli" class="ghost">检查更新</button>
+        <button type="button" id="update-cli" hidden>更新 mes</button>
+      </div>
+      <pre id="cli-output" class="output" hidden></pre>
+      <p id="cli-feedback" class="feedback" role="status"></p>
+
+      <hr class="rule">
+      <h2>本地缓存</h2>
+      <p class="hint">查询结果保存在本机数据库里，不会上传。同步时会自动覆盖此前缓存过的全部日期范围，因此不会残留已在 MES 侧删除的计划——缓存范围越大，同步越慢。清空缓存可把范围重置。</p>
+      <div class="row">
+        <span id="cache-info" class="version">读取中…</span>
+        <button type="button" id="clear-cache" class="ghost">清空缓存</button>
+      </div>
+      <p id="cache-feedback" class="feedback" role="status"></p>
+    </section>
 
     <form id="query-form" class="filters">
       <label class="field"><span>开始日期</span><input name="startDate" type="date" required></label>
@@ -137,6 +231,7 @@ export function renderPage() {
         </select>
       </label>
       <button type="submit">查询</button>
+      <button type="button" id="sync" class="ghost">同步最新数据</button>
     </form>
 
     <p id="status" class="status" role="status"></p>
@@ -157,6 +252,76 @@ export function renderPage() {
     })
 
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character])
+
+    const banner = document.querySelector('#auth-banner')
+    const settings = document.querySelector('#settings')
+    const mesPath = document.querySelector('#mes-path')
+    const saveConfig = document.querySelector('#save-config')
+    const configFeedback = document.querySelector('#config-feedback')
+
+    document.querySelector('#settings-toggle').addEventListener('click', () => {
+      if (settings.hasAttribute('data-show')) settings.removeAttribute('data-show')
+      else settings.setAttribute('data-show', '')
+    })
+
+    const showBanner = (html) => {
+      banner.innerHTML = html
+      banner.setAttribute('data-show', '')
+    }
+
+    // 登录状态是查询能否成功的前提，页面一打开就查，不等用户先失败一次。
+    const refreshAuth = async () => {
+      banner.removeAttribute('data-show')
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/auth')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) {
+          showBanner(escapeHtml(payload.error || '无法读取 MES 登录状态。'))
+          return
+        }
+        if (!payload.loggedIn) {
+          showBanner('本机 mes CLI 未登录，查询会失败。请在终端执行 <code>mes auth login</code> 后重试。')
+        }
+      } catch {
+        showBanner('无法读取 MES 登录状态。')
+      }
+    }
+
+    const loadConfig = async () => {
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/config')
+        const payload = await response.json()
+        if (response.ok && payload.ok) mesPath.value = payload.mesPath
+      } catch {
+        // 读不到配置不影响查询：留空即表示沿用 PATH。
+      }
+    }
+
+    saveConfig.addEventListener('click', async () => {
+      saveConfig.disabled = true
+      configFeedback.textContent = '正在校验…'
+      delete configFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/config', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mesPath: mesPath.value }),
+        })
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '保存失败')
+        mesPath.value = payload.mesPath
+        configFeedback.textContent = payload.mesPath === ''
+          ? '已保存，将使用 PATH 中的 mes。'
+          : '已保存，检测到 mes ' + payload.version + '。'
+        configFeedback.dataset.tone = 'ok'
+        await refreshAuth()
+      } catch (error) {
+        configFeedback.textContent = error.message || '保存失败'
+        configFeedback.dataset.tone = 'error'
+      } finally {
+        saveConfig.disabled = false
+      }
+    })
     const day = (value) => String(value ?? '').slice(0, 10)
     const executors = (plan) => (plan.executorList ?? []).map((row) => row.executorName).filter(Boolean).join('、')
 
@@ -188,28 +353,248 @@ export function renderPage() {
         + '</tr></thead><tbody>' + plans.map(renderRow).join('') + '</tbody></table></div>'
     }
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault()
+    const DAY_MS = 24 * 60 * 60 * 1000
+    const sync = document.querySelector('#sync')
+
+    /** 数据是本地缓存，必须让用户看见它有多新，否则会拿陈旧数据做判断。 */
+    const describeFreshness = (syncedAt) => {
+      const at = new Date(syncedAt)
+      if (Number.isNaN(at.getTime())) return ''
+      const stale = Date.now() - at.getTime() > DAY_MS
+      const shown = at.toLocaleString('zh-CN', { hour12: false })
+      return { text: '数据更新至 ' + shown + (stale ? '，已超过 1 天，请及时更新数据。' : '。'), stale }
+    }
+
+    const runQuery = async (refresh) => {
       submit.disabled = true
-      setStatus('正在查询…')
+      sync.disabled = true
+      setStatus(refresh ? '正在从 MES 同步…' : '正在查询…')
       results.innerHTML = ''
       const values = new FormData(form)
       try {
         const response = await fetch('/api/plugins/mes-plan-list/query', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ startDate: values.get('startDate'), endDate: values.get('endDate'), status: values.get('status') }),
+          body: JSON.stringify({
+            startDate: values.get('startDate'),
+            endDate: values.get('endDate'),
+            status: values.get('status'),
+            refresh,
+          }),
         })
         const payload = await response.json()
         if (!response.ok || !payload.ok) throw new Error(payload.error || '查询失败，请稍后重试')
-        setStatus('共 ' + payload.plans.length + ' 条。')
+        const freshness = describeFreshness(payload.syncedAt)
+        setStatus('共 ' + payload.plans.length + ' 条。' + (freshness === '' ? '' : ' ' + freshness.text),
+          freshness !== '' && freshness.stale ? 'stale' : undefined)
         renderPlans(payload.plans)
+        // 同步会扩大缓存覆盖的范围，设置面板里的概况要跟着变。
+        if (!payload.fromCache) loadCache()
       } catch (error) {
         setStatus(error.message || '查询失败，请稍后重试', 'error')
       } finally {
         submit.disabled = false
+        sync.disabled = false
+      }
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault()
+      runQuery(false)
+    })
+
+    sync.addEventListener('click', () => {
+      if (form.reportValidity()) runQuery(true)
+    })
+
+    const cliVersion = document.querySelector('#cli-version')
+    const cliOutput = document.querySelector('#cli-output')
+    const cliFeedback = document.querySelector('#cli-feedback')
+    const checkCli = document.querySelector('#check-cli')
+    const updateCli = document.querySelector('#update-cli')
+
+    // 打开页面只读本机版本，不联网；检查更新是用户主动点出来的动作。
+    const loadCliVersion = async () => {
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cli')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '无法读取 mes 版本')
+        cliVersion.textContent = 'mes ' + payload.version
+      } catch (error) {
+        cliVersion.textContent = 'mes 版本未知'
+        cliFeedback.textContent = error.message || '无法读取 mes 版本'
+        cliFeedback.dataset.tone = 'error'
+      }
+    }
+
+    checkCli.addEventListener('click', async () => {
+      checkCli.disabled = true
+      cliFeedback.textContent = '正在检查…'
+      delete cliFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cli?check=1')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '检查更新失败')
+        cliVersion.textContent = 'mes ' + payload.version
+        cliOutput.textContent = payload.output
+        cliOutput.hidden = payload.output === ''
+        // 认不出「已是最新」时保留更新入口：宁可多显示一个按钮，也不要在 MES 改
+        // 文案后把有更新说成没更新。
+        updateCli.hidden = payload.upToDate
+        cliFeedback.textContent = payload.upToDate ? '已是最新版本。' : 'mes 可能有新版本，请看上方输出。'
+        cliFeedback.dataset.tone = payload.upToDate ? 'ok' : 'error'
+      } catch (error) {
+        cliFeedback.textContent = error.message || '检查更新失败'
+        cliFeedback.dataset.tone = 'error'
+      } finally {
+        checkCli.disabled = false
       }
     })
+
+    updateCli.addEventListener('click', async () => {
+      updateCli.disabled = true
+      checkCli.disabled = true
+      submit.disabled = true
+      cliFeedback.textContent = '正在更新 mes，期间查询不可用…'
+      delete cliFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cli/update', { method: 'POST' })
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || 'mes 更新失败')
+        cliVersion.textContent = 'mes ' + payload.version
+        cliOutput.textContent = payload.output
+        cliOutput.hidden = payload.output === ''
+        cliFeedback.textContent = '已更新到 ' + payload.version + '。'
+        cliFeedback.dataset.tone = 'ok'
+        updateCli.hidden = true
+        await refreshAuth()
+      } catch (error) {
+        cliFeedback.textContent = error.message || 'mes 更新失败'
+        cliFeedback.dataset.tone = 'error'
+      } finally {
+        updateCli.disabled = false
+        checkCli.disabled = false
+        submit.disabled = false
+      }
+    })
+
+    const cacheInfo = document.querySelector('#cache-info')
+    const cacheFeedback = document.querySelector('#cache-feedback')
+    const clearCache = document.querySelector('#clear-cache')
+
+    const renderCache = (payload) => {
+      cacheInfo.textContent = payload.count === 0
+        ? '本机尚无缓存'
+        : payload.count + ' 条，覆盖 ' + payload.startDate + ' ~ ' + payload.endDate
+    }
+
+    const loadCache = async () => {
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cache')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '无法读取缓存状态')
+        renderCache(payload)
+      } catch (error) {
+        cacheInfo.textContent = '缓存状态未知'
+        cacheFeedback.textContent = error.message || '无法读取缓存状态'
+        cacheFeedback.dataset.tone = 'error'
+      }
+    }
+
+    clearCache.addEventListener('click', async () => {
+      clearCache.disabled = true
+      cacheFeedback.textContent = '正在清空…'
+      delete cacheFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/cache', { method: 'DELETE' })
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '清空缓存失败')
+        renderCache(payload)
+        cacheFeedback.textContent = '已清空，下次查询会重新从 MES 取。'
+        cacheFeedback.dataset.tone = 'ok'
+      } catch (error) {
+        cacheFeedback.textContent = error.message || '清空缓存失败'
+        cacheFeedback.dataset.tone = 'error'
+      } finally {
+        clearCache.disabled = false
+      }
+    })
+
+    const pluginVersion = document.querySelector('#plugin-version')
+    const pluginFeedback = document.querySelector('#plugin-feedback')
+    const checkPlugin = document.querySelector('#check-plugin')
+    const updatePlugin = document.querySelector('#update-plugin')
+
+    const showPluginVersion = (payload) => {
+      pluginVersion.textContent = payload.branch + ' @ ' + payload.commit
+        + (payload.at ? '（' + payload.at.slice(0, 10) + '）' : '')
+    }
+
+    // 打开页面只读本地 git 信息，不联网。
+    const loadPluginVersion = async () => {
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/plugin')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '无法读取插件版本')
+        showPluginVersion(payload)
+      } catch (error) {
+        pluginVersion.textContent = '插件版本未知'
+        pluginFeedback.textContent = error.message || '无法读取插件版本'
+        pluginFeedback.dataset.tone = 'error'
+      }
+    }
+
+    checkPlugin.addEventListener('click', async () => {
+      checkPlugin.disabled = true
+      pluginFeedback.textContent = '正在检查…'
+      delete pluginFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/plugin?check=1')
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '检查更新失败')
+        showPluginVersion(payload)
+        updatePlugin.hidden = payload.upToDate
+        pluginFeedback.textContent = payload.upToDate
+          ? '已是最新版本。'
+          : '有新版本（远程 ' + payload.remoteCommit + '），可以更新。'
+        pluginFeedback.dataset.tone = payload.upToDate ? 'ok' : 'error'
+      } catch (error) {
+        pluginFeedback.textContent = error.message || '检查更新失败'
+        pluginFeedback.dataset.tone = 'error'
+      } finally {
+        checkPlugin.disabled = false
+      }
+    })
+
+    updatePlugin.addEventListener('click', async () => {
+      updatePlugin.disabled = true
+      checkPlugin.disabled = true
+      pluginFeedback.textContent = '正在更新…'
+      delete pluginFeedback.dataset.tone
+      try {
+        const response = await fetch('/api/plugins/mes-plan-list/plugin/update', { method: 'POST' })
+        const payload = await response.json()
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '插件更新失败')
+        showPluginVersion(payload)
+        updatePlugin.hidden = true
+        pluginFeedback.textContent = payload.changed
+          ? '已更新到 ' + payload.commit + '，请重启 DSH 使新版本生效。'
+          : '已是最新版本，无需更新。'
+        pluginFeedback.dataset.tone = 'ok'
+      } catch (error) {
+        pluginFeedback.textContent = error.message || '插件更新失败'
+        pluginFeedback.dataset.tone = 'error'
+      } finally {
+        updatePlugin.disabled = false
+        checkPlugin.disabled = false
+      }
+    })
+
+    loadConfig()
+    refreshAuth()
+    loadCliVersion()
+    loadCache()
+    loadPluginVersion()
   </script>
 </body>
 </html>`
