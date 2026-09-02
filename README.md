@@ -88,9 +88,6 @@ none.
 
 ## Filters
 
-Status and check type are both multi-select; selecting none means no
-restriction.
-
 | Status | | Check type | |
 | --- | --- | --- | --- |
 | `0` | 未开始 | `0` | 巡检 |
