@@ -121,7 +121,7 @@ test('serves the query form on a GET page request', async () => {
 
   assert.equal(response.statusCode, 200)
   assert.equal(response.headers['content-type'], 'text/html; charset=utf-8')
-  assert.match(response.body, /<form id="query-form">/)
+  assert.match(response.body, /<form id="query-form"/)
 })
 
 test('registers the exact page and query routes', () => {
@@ -170,6 +170,30 @@ test('returns an empty list when MES has no list', async () => {
   )
 
   assert.deepEqual(plans, [])
+})
+
+test('pages through MES so a result larger than one page is returned whole', async () => {
+  const requested = []
+  const plans = await queryPlans({ startDate: '2026-09-01', endDate: '2026-09-30' }, async (args) => {
+    const page = Number(args[args.indexOf('--page') + 1])
+    requested.push(page)
+    const size = Number(args[args.indexOf('--page-size') + 1])
+    const all = Array.from({ length: 450 }, (unused, index) => ({ id: index + 1 }))
+    return JSON.stringify({ list: all.slice((page - 1) * size, page * size), total: all.length })
+  })
+
+  assert.deepEqual(requested, [1, 2, 3])
+  assert.equal(plans.length, 450)
+  assert.deepEqual(plans.at(-1), { id: 450 })
+})
+
+test('stops paging on an empty page even when MES reports an unreachable total', async () => {
+  const plans = await queryPlans({ startDate: '2026-09-01', endDate: '2026-09-30' }, async (args) => {
+    const page = Number(args[args.indexOf('--page') + 1])
+    return JSON.stringify({ list: page === 1 ? [{ id: 1 }] : [], total: 9999 })
+  })
+
+  assert.deepEqual(plans, [{ id: 1 }])
 })
 
 test('surfaces a non-zero runner failure', async () => {

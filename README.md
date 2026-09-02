@@ -10,11 +10,12 @@ plans locally by date range and status.
 
 ## First plugin: `mes-plan-list`
 
-The plugin serves a page at `/plugins/mes-plan-list` and sends same-origin
-queries to its local DSH Web endpoint. It accepts a start date, end date, and
-optional status; then it renders a plan table, an empty state, or a concise MES
-error. The plugin only permits those inputs and requests the first 200 matching
-plans.
+The plugin adds an **实施计划** entry to the DSH Web sidebar and serves a page at
+`/plugins/mes-plan-list` that sends same-origin queries to its local DSH Web
+endpoint. It accepts a start date, end date, and optional status; then it
+renders a plan table, an empty state, or a concise MES error. The plugin only
+permits those inputs, and returns every matching plan by paging through the
+MES CLI.
 
 ## Local setup
 
@@ -26,22 +27,28 @@ First, ensure the local MES CLI is authenticated:
 mes auth status
 ```
 
-Link the plugin to DSH's Web profile once:
+Register the plugin with DSH's Web profile once:
 
 ```sh
-dsh plugin --profile web add "link:$(pwd)/plugins/mes-plan-list"
+pnpm register
 ```
 
-Run the workspace tests, then start DSH Web with the plugin patch:
+This writes the profile's dependency entry, its `dsh.profile.bundles` entry —
+which is what makes DSH load the plugin at all — and the `node_modules`
+symlink. It is idempotent, and it avoids `dsh plugin add`'s full-profile pnpm
+install, which fails whenever any unrelated package in the profile trips a
+supply-chain policy.
+
+Run the workspace tests, then start DSH Web:
 
 ```sh
 pnpm test
-dsh web --patch plugins/mes-plan-list/cordis.patch.yml --no-open
+dsh --profile web --no-open
 ```
 
-Open <http://127.0.0.1:3080/plugins/mes-plan-list>. Submitting the form uses
-your local MES CLI; this repository does not include or claim a real MES plan
-query result.
+Open <http://127.0.0.1:3080> and click **实施计划** in the sidebar. Submitting
+the form uses your local MES CLI; this repository does not include or claim a
+real MES plan query result.
 
 ## Status filter
 
@@ -49,8 +56,8 @@ query result.
 | --- | --- |
 | `0` | Not started (未开始) |
 | `1` | In progress (进行中) |
-| `2` | Finished (已完成) |
-| `3` | Overdue and unfinished (逾期未完成) |
+| `2` | Finished (结束) |
+| `3` | Overdue and unfinished (已逾期未结束) |
 
 Leave the status field empty to include all statuses.
 
@@ -61,6 +68,7 @@ Leave the status field empty to include all statuses.
 ├── assets/readme/          # Repository README visuals
 ├── plugins/
 │   └── mes-plan-list/      # Package, patch, source, tests, and usage notes
+├── scripts/                # Profile registration
 ├── docs/                   # Plugin conventions and design notes
 ├── CHANGELOG.md
 ├── package.json
