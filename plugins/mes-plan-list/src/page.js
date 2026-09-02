@@ -212,6 +212,7 @@ export function renderPage() {
        在表格里完全认不出是可勾选的控件，所以这里必须逐项复位。 */
     th.pick, td.pick { width: 36px; padding-left: 14px; padding-right: 0; }
     .pick input { min-width: 0; width: 16px; height: 16px; padding: 0; margin: 0; border-radius: 4px; accent-color: var(--accent); cursor: pointer; }
+    .pick input:disabled { opacity: 0.3; cursor: not-allowed; }
     td.id, td.date { color: var(--muted); }
     td.num { text-align: right; }
 
@@ -542,8 +543,9 @@ export function renderPage() {
     const selectCell = (plan) => isOverdue(plan)
       ? '<td class="pick"><input type="checkbox" data-pick="' + escapeHtml(plan.id) + '"'
         + (selectedPlanIds.has(plan.id) ? ' checked' : '') + ' aria-label="选择计划 ' + escapeHtml(plan.id) + '"></td>'
-      // 非逾期计划留空格而不是禁用复选框：它根本不是候选项。
-      : '<td class="pick"></td>'
+      // 非逾期计划渲染为禁用复选框而不是留空。列表不按状态排序，逾期行常被夹在
+      // 中间，一整列空白读起来像功能坏了；禁用态才说明「这一行本来就不能选」。
+      : '<td class="pick"><input type="checkbox" disabled title="仅「已逾期未结束」的计划可以发送风险提醒"></td>'
 
     const renderRow = (plan) => '<tr>'
       + selectCell(plan)

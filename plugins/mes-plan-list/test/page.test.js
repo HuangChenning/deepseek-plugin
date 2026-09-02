@@ -235,3 +235,14 @@ test('the row checkboxes neutralize the global input sizing rule', () => {
   assert.match(css, /\.pick input \{[^}]*min-width:\s*0/)
   assert.match(css, /\.pick input \{[^}]*width:\s*16px/)
 })
+
+test('a non-selectable row shows a disabled checkbox rather than an empty cell', () => {
+  const script = renderPage().split('<script>')[1]
+  const cell = script.slice(script.indexOf('const selectCell'), script.indexOf('const renderRow'))
+
+  // 计划列表不按状态排序，逾期行常夹在中间；一整列空白会被读成「功能坏了」。
+  assert.match(cell, /disabled title="[^"]*已逾期未结束[^"]*"/, '非逾期行需给出禁用态与原因')
+  // 禁用项不带 data-pick，选择逻辑与可选行的查询保持一致。
+  const disabledBranch = cell.slice(cell.indexOf('disabled'))
+  assert.doesNotMatch(disabledBranch, /data-pick/)
+})
