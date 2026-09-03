@@ -338,15 +338,6 @@ export function renderPage() {
       <p id="plugin-feedback" class="feedback" role="status"></p>
 
       <hr class="rule">
-      <h2>mes CLI 路径</h2>
-      <p class="hint">留空则使用 PATH 中的 <code>mes</code>。填绝对路径可解决 DSH 从图形界面启动时找不到 mes 的情况。保存前会执行该路径的 <code>--version</code> 确认它确实是 mes。</p>
-      <div class="row">
-        <label class="field"><span>绝对路径</span><input id="mes-path" type="text" placeholder="/opt/homebrew/bin/mes" spellcheck="false"></label>
-        <button type="button" id="save-config">保存</button>
-      </div>
-      <p id="config-feedback" class="feedback" role="status"></p>
-
-      <hr class="rule">
       <h2>mes CLI 版本</h2>
       <p class="hint">检查更新会访问 mes 的更新服务器，只在点击时发生。更新会替换本机的 mes 二进制，期间查询会被暂时拒绝。</p>
       <div class="row">
@@ -499,9 +490,6 @@ export function renderPage() {
 
     const banner = document.querySelector('#auth-banner')
     const settingsView = document.querySelector('#settings-view')
-    const mesPath = document.querySelector('#mes-path')
-    const saveConfig = document.querySelector('#save-config')
-    const configFeedback = document.querySelector('#config-feedback')
 
     // 视图由 URL hash 决定，刷新或前进后退都会回到用户当时看的那一页。
     const syncSettingsView = () => {
@@ -546,41 +534,6 @@ export function renderPage() {
       }
     }
 
-    const loadConfig = async () => {
-      try {
-        const response = await fetch('/api/plugins/mes-plan-list/config')
-        const payload = await response.json()
-        if (response.ok && payload.ok) mesPath.value = payload.mesPath
-      } catch {
-        // 读不到配置不影响查询：留空即表示沿用 PATH。
-      }
-    }
-
-    saveConfig.addEventListener('click', async () => {
-      saveConfig.disabled = true
-      configFeedback.textContent = '正在校验…'
-      delete configFeedback.dataset.tone
-      try {
-        const response = await fetch('/api/plugins/mes-plan-list/config', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ mesPath: mesPath.value }),
-        })
-        const payload = await response.json()
-        if (!response.ok || !payload.ok) throw new Error(payload.error || '保存失败')
-        mesPath.value = payload.mesPath
-        configFeedback.textContent = payload.mesPath === ''
-          ? '已保存，将使用 PATH 中的 mes。'
-          : '已保存，检测到 mes ' + payload.version + '。'
-        configFeedback.dataset.tone = 'ok'
-        await refreshAuth()
-      } catch (error) {
-        configFeedback.textContent = error.message || '保存失败'
-        configFeedback.dataset.tone = 'error'
-      } finally {
-        saveConfig.disabled = false
-      }
-    })
     const day = (value) => String(value ?? '').slice(0, 10)
     const executors = (plan) => (plan.executorList ?? []).map((row) => row.executorName).filter(Boolean).join('、')
 
@@ -965,7 +918,6 @@ export function renderPage() {
     syncAllChip('status')
     syncAllChip('checkType')
 
-    loadConfig()
     refreshAuth()
     loadCliVersion()
     loadCache()

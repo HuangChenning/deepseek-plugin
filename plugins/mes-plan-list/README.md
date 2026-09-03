@@ -114,9 +114,11 @@ adds a runtime dependency, run `pnpm install` too.
 
 ## Settings
 
-The page's **设置** panel configures the absolute path to the `mes` binary.
-Leave it empty to use `mes` from PATH. Setting it fixes the case where a DSH
-started from a GUI or launchd cannot resolve `mes`.
+The absolute path to the `mes` binary is stored in
+`~/.dsh/storages/mes-plan-list/config.json`. Leave it empty to use `mes` from
+PATH. Setting it fixes the case where a DSH started from a GUI or launchd
+cannot resolve `mes`. The plugin page no longer edits the path, so that it has
+a single source of truth once it moves into DSH's own plugin configuration.
 
 The path decides which binary the host executes, so a submitted value is only
 stored after it passes all of: absolute path, no control characters, and a

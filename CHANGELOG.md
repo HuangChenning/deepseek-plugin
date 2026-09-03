@@ -12,6 +12,14 @@ All notable changes to this project will be documented in this file.
   page. Leaving settings does not reload the page, so query results and any
   cross-page plan selection survive the round trip.
 
+### Removed
+
+- The settings page no longer edits the `mes` CLI path, so the path stops
+  having two editable sources. It still comes from
+  `~/.dsh/storages/mes-plan-list/config.json` — edit that file for now — and is
+  moving into DSH's own plugin configuration; the validating API route is
+  unchanged.
+
 ## [0.5.0] - 2026-09-03
 
 ### Added

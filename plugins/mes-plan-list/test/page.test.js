@@ -214,6 +214,9 @@ test('settings are a dedicated view instead of sharing the plan list', () => {
   for (const id of ['mail-panel', 'mail-settings-form', 'mail-mappings', 'mail-history']) {
     assert.match(settingsView, new RegExp(`id="${id}"`), `#${id} 不在独立设置视图内`)
   }
+  // MES 路径归 Harness 的插件配置管，页面再留一个输入框就会有两个可编辑的配置来源。
+  assert.doesNotMatch(settingsView, /id="mes-path"/, 'MES 路径不再由插件页面编辑')
+  assert.doesNotMatch(settingsView, /id="save-config"/, 'MES 路径不再由插件页面保存')
   assert.match(script, /settingsView\.setAttribute\('data-show', ''\)/, '点击设置必须展示独立设置视图')
   assert.match(script, /settingsView\.removeAttribute\('data-show'\)/, '返回列表必须关闭独立设置视图')
 })
