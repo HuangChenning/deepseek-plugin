@@ -1,4 +1,15 @@
-import defaultNodemailer from 'nodemailer'
+import { createRequire } from 'node:module'
+
+// 与工作簿同理：nodemailer 只在真正发信时用到，顶层静态 import 会让依赖缺失时整个
+// 模块解析失败，把「发不了信」放大成「DSH 起不来」。createTransport 是同步的，所以
+// 用 createRequire 而不是 await import。
+function requireNodemailer() {
+  try {
+    return createRequire(import.meta.url)('nodemailer')
+  } catch {
+    throw new Error('缺少 nodemailer 依赖，请在仓库根执行 `pnpm install` 后重启 DSH')
+  }
+}
 
 // 显式白名单：只有这些是「再试一次可能就好了」的网络故障。认证失败、被拒收件人
 // 和未知错误一律不重试，避免对着服务端反复撞同一堵墙。
@@ -20,11 +31,11 @@ export function classifySendError(error) {
 }
 
 /** 只有两种模式：隐式 TLS 与强制 STARTTLS，两者都不允许退回明文。 */
-export function createTransport(settings, password, { nodemailer = defaultNodemailer } = {}) {
+export function createTransport(settings, password, { nodemailer } = {}) {
   if (settings?.securityMode !== 'tls' && settings?.securityMode !== 'starttls') {
     throw new Error('安全模式无效')
   }
-  return nodemailer.createTransport({
+  return (nodemailer ?? requireNodemailer()).createTransport({
     host: settings.smtpHost,
     port: settings.smtpPort,
     secure: settings.securityMode === 'tls',

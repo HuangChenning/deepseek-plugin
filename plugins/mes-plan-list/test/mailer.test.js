@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { classifySendError, createTransport, sendTestMail } from '../src/mailer.js'
@@ -115,4 +116,11 @@ test('classifies only the documented transport failures as transient', () => {
   assert.equal(classifySendError({ code: 'EAUTH' }).transient, false)
   assert.equal(classifySendError({ code: 'EENVELOPE' }).transient, false)
   assert.equal(classifySendError({ code: undefined }).transient, false)
+})
+
+// 与 mail-mappings 同理：nodemailer 缺失只应让「发信」这一个功能失败，不应让模块
+// 解析失败从而拖垮整个 DSH 的启动。
+test('a missing mail transport dependency does not take down the whole module', async () => {
+  const source = await readFile(new URL('../src/mailer.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /^import .+ from 'nodemailer'/mu)
 })
