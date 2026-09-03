@@ -21,6 +21,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.2",
     "exceljs": "4.4.0",
     "nodemailer": "9.1.1"
   }

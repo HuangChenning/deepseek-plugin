@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- The `mes` CLI path is configured in DSH's own **设置 → 插件 → 插件配置**. The
+  plugin exports a schema holding only that path — SMTP passwords, executor
+  mappings and send history stay in the keychain and the plugin's own database.
+  A path DSH supplies wins over `~/.dsh/storages/mes-plan-list/config.json`, and
+  is re-checked for being absolute before anything is executed with it.
+
 ### Changed
 
 - Plugin settings are a page of their own instead of a panel expanding above
@@ -15,10 +23,8 @@ All notable changes to this project will be documented in this file.
 ### Removed
 
 - The settings page no longer edits the `mes` CLI path, so the path stops
-  having two editable sources. It still comes from
-  `~/.dsh/storages/mes-plan-list/config.json` — edit that file for now — and is
-  moving into DSH's own plugin configuration; the validating API route is
-  unchanged.
+  having two editable sources. The validating API route is unchanged, and
+  `config.json` still works as a fallback.
 
 ## [0.5.0] - 2026-09-03
 

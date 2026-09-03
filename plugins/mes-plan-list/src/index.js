@@ -1,7 +1,9 @@
+import Schema from '@deepseek-ai/schemastery'
+
 import { queryPlans } from './plan-query.js'
 import { renderPage } from './page.js'
 import { readConfig, writeConfig } from './config.js'
-import { isUpdating, readAuthStatus, readCliVersion, readMesVersion, readUpdateStatus, runMesUpdate } from './mes-cli.js'
+import { isUpdating, readAuthStatus, readCliVersion, readMesVersion, readUpdateStatus, runMesUpdate, setHostMesPath } from './mes-cli.js'
 import { PlanStore } from './plan-store.js'
 import { queryWorkHours } from './work-hours.js'
 import { checkPluginUpdate, pullPluginUpdate, readPluginVersion } from './self-update.js'
@@ -236,6 +238,16 @@ function mailRoute({ methods, contentType = JSON_CONTENT_TYPE, gatewayError }, r
     }
   }
 }
+
+/**
+ * Harness「设置 → 插件 → 插件配置」表单的模式。
+ *
+ * 只放非机密的 mes 路径：SMTP 密码、邮箱映射和发送历史都不能写进 Harness 的
+ * 配置文件，它们分别属于钥匙串和插件自己的 mail.db。
+ */
+export const Config = Schema.object({
+  mesPath: Schema.string().default('').description('mes CLI 的绝对路径；留空则使用 PATH。'),
+})
 
 export function createHandlers({
   query = queryPlans,
@@ -601,7 +613,9 @@ export function createHandlers({
 
 export const inject = ['webServer']
 
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  // Harness 已按 Config 校验过类型，路径形状仍要再验一次：它决定执行哪个二进制。
+  setHostMesPath(config.mesPath ?? '')
   const {
     handlePage, handleQuery, handleConfig, handleAuth,
     handleCli, handleCliUpdate, handleCache, handlePlugin, handlePluginUpdate,
