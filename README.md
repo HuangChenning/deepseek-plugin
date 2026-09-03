@@ -40,6 +40,12 @@ for the SMTP, Keychain, and mapping setup.
   started it, so the profile exists.
 - **The `mes` CLI**, authenticated. Check with `mes auth status`; the plugin
   shows a banner and refuses to return data when it is not logged in.
+- **A GitHub authorization that can read this private repository**, needed to
+  update the plugin in place later. For an HTTPS `origin`, `gh auth login`
+  followed by `gh auth setup-git`; for an SSH `origin`, a key that is already on
+  your GitHub account. You do not need `gh` if you use SSH. The plugin's
+  settings page reports what your machine is set up for and never handles a
+  token itself.
 
 ### Install
 

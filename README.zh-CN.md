@@ -36,6 +36,10 @@
   `dsh --profile web`，让 profile 存在。
 - **`mes` CLI** 且已登录。可用 `mes auth status` 检查；未登录时插件会显示提示条
   并且查询会失败。
+- **一条能读取本 private 仓库的 GitHub 授权**，日后在插件内原地升级时需要它。
+  `origin` 是 HTTPS 时，执行 `gh auth login` 之后再执行 `gh auth setup-git`；
+  `origin` 是 SSH 时，公钥需已挂到你的 GitHub 账号上。走 SSH 就不需要装 `gh`。
+  插件的设置页会显示本机实际配到了哪一步，且自身不经手任何 token。
 
 ### 安装
 
