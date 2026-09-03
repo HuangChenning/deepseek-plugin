@@ -46,14 +46,23 @@ for the SMTP, Keychain, and mapping setup.
 ```sh
 git clone https://github.com/HuangChenning/deepseek-plugin.git
 cd deepseek-plugin
+pnpm install
 pnpm register
 ```
 
-This writes the profile's dependency entry, its `dsh.profile.bundles` entry —
-which is what makes DSH load the plugin at all — and the `node_modules`
-symlink. It is idempotent, and it avoids `dsh plugin add`'s full-profile pnpm
-install, which fails whenever any unrelated package in the profile trips a
-supply-chain policy.
+Run both from the repository root. This is a pnpm workspace, so `pnpm install`
+there is what installs the plugin's own dependencies; running it inside
+`plugins/mes-plan-list` does not.
+
+`pnpm register` does not install anything. Skip `pnpm install` and DSH fails to
+boot with `Cannot find package 'exceljs'`, because the plugin's modules import
+their dependencies at load time.
+
+`pnpm register` writes the profile's dependency entry, its
+`dsh.profile.bundles` entry — which is what makes DSH load the plugin at all —
+and the `node_modules` symlink. It is idempotent, and it avoids `dsh plugin
+add`'s full-profile pnpm install, which fails whenever any unrelated package in
+the profile trips a supply-chain policy.
 
 Run the workspace tests, then start DSH Web:
 

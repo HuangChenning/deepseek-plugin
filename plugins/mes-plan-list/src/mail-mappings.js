@@ -1,6 +1,21 @@
 import { randomBytes } from 'node:crypto'
 
-import ExcelJS from 'exceljs'
+// 用到工作簿的三个导出都是 async，exceljs 因此可以惰性加载。顶层静态 import 会让
+// 依赖缺失时整个模块解析失败，cordis entry 跟着失败，DSH 整个起不来；惰性化后
+// 爆炸半径缩回到导入导出这三个函数。
+async function defaultImportExcel() {
+  return import('exceljs')
+}
+
+async function newWorkbook(importExcel) {
+  let module
+  try {
+    module = await importExcel()
+  } catch {
+    throw new Error('缺少 exceljs 依赖，请在仓库根执行 `pnpm install` 后重启 DSH')
+  }
+  return new (module.default ?? module).Workbook()
+}
 
 // 用户只填得出姓名和邮箱：MES 的 executorId 在界面上从不出现，要求手工提供它
 // 等于要一个拿不到的输入。ID 由服务端从计划缓存反查，一个姓名可能对应同一个人的
@@ -98,8 +113,8 @@ export function resolveMappingRows(parsed, index) {
 }
 
 /** Parse the first worksheet of an executor mapping workbook without retaining its buffer. */
-export async function parseMappingWorkbook(buffer) {
-  const workbook = new ExcelJS.Workbook()
+export async function parseMappingWorkbook(buffer, { importExcel = defaultImportExcel } = {}) {
+  const workbook = await newWorkbook(importExcel)
   await workbook.xlsx.load(buffer)
   const sheet = workbook.worksheets[0]
   if (sheet === undefined) return { rows: [], errors: [mappingError(1, 'missing-sheet', '', '工作簿缺少工作表')] }
@@ -151,8 +166,8 @@ function validateExportRows(rows) {
 }
 
 /** Create a blank workbook containing the fixed import headers. */
-export async function createMappingTemplate(names = []) {
-  const workbook = new ExcelJS.Workbook()
+export async function createMappingTemplate(names = [], { importExcel = defaultImportExcel } = {}) {
+  const workbook = await newWorkbook(importExcel)
   const sheet = workbook.addWorksheet('邮箱映射')
   sheet.addRow(HEADERS)
   // 预填计划里出现过的姓名，用户只需补邮箱列，不必自己回忆有哪些执行人。
@@ -161,8 +176,8 @@ export async function createMappingTemplate(names = []) {
 }
 
 /** Export the supplied private mapping rows as an Excel workbook. */
-export async function exportMappings(rows) {
-  const workbook = new ExcelJS.Workbook()
+export async function exportMappings(rows, { importExcel = defaultImportExcel } = {}) {
+  const workbook = await newWorkbook(importExcel)
   const sheet = workbook.addWorksheet('邮箱映射')
   sheet.addRow(HEADERS)
   // 同一个人的多个账号在导出里合成一行，导出再导入应当得到同样的结果。

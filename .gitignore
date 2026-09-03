@@ -15,4 +15,7 @@ docs/
 
 node_modules/
 
+# 浏览器工具的本地日志，每次运行都会重新生成。
+.playwright-cli/
+
 .DS_Store

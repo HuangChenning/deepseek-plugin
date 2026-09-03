@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import ExcelJS from 'exceljs'
@@ -174,4 +175,29 @@ test('expires import previews and stores an immutable snapshot', () => {
   const second = store.create('profile-a', { added: [{ executorId: '1001' }] }, now)
   const consumed = store.consume(second, 'profile-a', now)
   assert.throws(() => { consumed.added[0].executorId = 'changed' }, TypeError)
+})
+
+// 依赖缺失只应弄坏工作簿这一个功能。顶层静态 import 会让 exceljs 解析失败时整个
+// 模块加载不了，cordis entry 随之失败，DSH 整个起不来——用户连设置页里那句「请执行
+// pnpm install」都看不到。所以这里断言的是爆炸半径，不只是错误文案。
+test('a missing workbook dependency does not take down the whole module', async () => {
+  const importExcel = async () => { throw new Error("Cannot find package 'exceljs'") }
+
+  // 不碰工作簿的导出照常可用。
+  assert.deepEqual(
+    buildExecutorIndex([{ executorList: [{ executorId: '1001', executorName: '张三' }] }]).get('张三'),
+    ['1001'],
+  )
+
+  for (const call of [
+    () => parseMappingWorkbook(Buffer.alloc(0), { importExcel }),
+    () => createMappingTemplate([], { importExcel }),
+    () => exportMappings([], { importExcel }),
+  ]) {
+    await assert.rejects(call, /在仓库根执行 `pnpm install`/u)
+  }
+
+  // 上面的注入点绕不过静态 import——那会在模块解析阶段就失败，测试根本跑不到。
+  const source = await readFile(new URL('../src/mail-mappings.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /^import .+ from 'exceljs'/mu)
 })

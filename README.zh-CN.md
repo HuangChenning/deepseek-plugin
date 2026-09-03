@@ -42,11 +42,18 @@
 ```sh
 git clone https://github.com/HuangChenning/deepseek-plugin.git
 cd deepseek-plugin
+pnpm install
 pnpm register
 ```
 
-这会写入 profile 的依赖项、`dsh.profile.bundles` 条目（正是它让 DSH 真正加载
-插件）以及 `node_modules` 软链。该命令是幂等的，并且避开了 `dsh plugin add`
+两条命令都要在仓库根执行。这是一个 pnpm workspace，插件自己的依赖是由仓库根的
+`pnpm install` 装上的，在 `plugins/mes-plan-list` 目录下跑不算数。
+
+`pnpm register` 不装任何依赖。漏掉 `pnpm install`，DSH 会直接起不来并报
+`Cannot find package 'exceljs'`——插件的模块在加载时就要用到这些依赖。
+
+`pnpm register` 会写入 profile 的依赖项、`dsh.profile.bundles` 条目（正是它让
+DSH 真正加载插件）以及 `node_modules` 软链。该命令是幂等的，并且避开了 `dsh plugin add`
 覆盖整个 profile 的 pnpm install——只要 profile 里有任何一个无关包违反供应链
 策略，那条路就会失败。
 

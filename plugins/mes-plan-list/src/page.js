@@ -919,10 +919,20 @@ export function renderPage() {
         if (!response.ok || !payload.ok) throw new Error(payload.error || '插件更新失败')
         showPluginVersion(payload)
         updatePlugin.hidden = true
-        pluginFeedback.textContent = payload.changed
-          ? '已更新到 ' + (payload.version || payload.commit) + '，请重启 DSH 使新版本生效。'
-          : '已是最新版本，无需更新。'
-        pluginFeedback.dataset.tone = 'ok'
+        const target = payload.version || payload.commit
+        if (payload.dependencies === 'failed') {
+          // 依赖没装上就重启只会得到一个打不开的 DSH，这里不能说更新成功。
+          pluginFeedback.textContent = '已更新到 ' + target + '，但依赖安装失败：'
+            + (payload.dependencyError || '') + ' 插件当前不可用，请在仓库根手动执行 pnpm install 后重启 DSH。'
+          pluginFeedback.dataset.tone = 'error'
+        } else if (payload.changed) {
+          pluginFeedback.textContent = '已更新到 ' + target
+            + (payload.dependencies === 'installed' ? '，依赖已装好' : '') + '，请重启 DSH 使新版本生效。'
+          pluginFeedback.dataset.tone = 'ok'
+        } else {
+          pluginFeedback.textContent = '已是最新版本，无需更新。'
+          pluginFeedback.dataset.tone = 'ok'
+        }
       } catch (error) {
         pluginFeedback.textContent = error.message || '插件更新失败'
         pluginFeedback.dataset.tone = 'error'
