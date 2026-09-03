@@ -20,6 +20,11 @@ export function isOverdue(plan) {
   return Number(plan?.status) === 3
 }
 
+/** 设置页由 URL hash 标记，刷新后据此回到用户当时看的那一页。 */
+export function isSettingsView(hash) {
+  return hash === '#settings'
+}
+
 export function toggleSelection(selected, id, checked) {
   if (checked) selected.add(id)
   else selected.delete(id)
@@ -470,6 +475,7 @@ export function renderPage() {
     const applyFilterSelection = ${applyFilterSelection}
     const paginatePlans = ${paginatePlans}
     const isOverdue = ${isOverdue}
+    const isSettingsView = ${isSettingsView}
     const toggleSelection = ${toggleSelection}
     const setPageSelection = ${setPageSelection}
     const pageSelectionState = ${pageSelectionState}
@@ -497,13 +503,24 @@ export function renderPage() {
     const saveConfig = document.querySelector('#save-config')
     const configFeedback = document.querySelector('#config-feedback')
 
+    // 视图由 URL hash 决定，刷新或前进后退都会回到用户当时看的那一页。
+    const syncSettingsView = () => {
+      if (isSettingsView(location.hash)) {
+        document.body.dataset.view = 'settings'
+        settingsView.setAttribute('data-show', '')
+      } else {
+        delete document.body.dataset.view
+        settingsView.removeAttribute('data-show')
+      }
+    }
+    window.addEventListener('hashchange', syncSettingsView)
+    syncSettingsView()
+
     document.querySelector('#settings-toggle').addEventListener('click', () => {
-      document.body.dataset.view = 'settings'
-      settingsView.setAttribute('data-show', '')
+      location.hash = 'settings'
     })
     document.querySelector('#settings-back').addEventListener('click', () => {
-      delete document.body.dataset.view
-      settingsView.removeAttribute('data-show')
+      location.hash = ''
     })
 
     const showBanner = (html) => {

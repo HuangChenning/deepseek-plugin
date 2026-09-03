@@ -43,7 +43,7 @@ test('pagination clamps a page beyond the available results', () => {
  */
 
 import {
-  canSend, importSummary, isOverdue, pageSelectionState,
+  canSend, importSummary, isOverdue, isSettingsView, pageSelectionState,
   reconcileSelection, renderPage, sendSummary, setPageSelection, toggleSelection,
 } from '../src/page.js'
 
@@ -216,6 +216,29 @@ test('settings are a dedicated view instead of sharing the plan list', () => {
   }
   assert.match(script, /settingsView\.setAttribute\('data-show', ''\)/, '点击设置必须展示独立设置视图')
   assert.match(script, /settingsView\.removeAttribute\('data-show'\)/, '返回列表必须关闭独立设置视图')
+})
+
+test('only the settings hash marks the settings view', () => {
+  assert.equal(isSettingsView('#settings'), true)
+  for (const hash of ['', '#', '#settings-view', '#mail', undefined]) {
+    assert.equal(isSettingsView(hash), false, String(hash))
+  }
+})
+
+/*
+ * 刷新会重建整个页面，点击时设的 data-view 随之丢失。只有把视图挂在 URL hash 上、
+ * 并在脚本启动时同步一次，用户刷新后才还停在设置页；hashchange 让前进后退同样有效。
+ */
+test('the settings view survives a reload because it lives in the URL hash', () => {
+  const script = renderPage().split('<script>')[1]
+
+  const written = script.match(/#settings-toggle'\)\.addEventListener\('click', \(\) => \{\s*location\.hash = '([^']*)'/)
+  assert.ok(written, '设置按钮必须把视图写进 URL hash')
+  assert.equal(isSettingsView(`#${written[1]}`), true, '按钮写入的 hash 必须被认作设置页')
+
+  assert.match(script, /window\.addEventListener\('hashchange', syncSettingsView\)/, 'hash 变化必须重新同步视图')
+  assert.match(script, /\n\s*syncSettingsView\(\)\n/, '页面加载时必须按当前 hash 同步一次视图')
+  assert.match(script, /#settings-back'\)\.addEventListener\('click', \(\) => \{\s*location\.hash = ''/, '返回列表必须清掉 hash')
 })
 
 test('every .panel section has a data-show display path', () => {
