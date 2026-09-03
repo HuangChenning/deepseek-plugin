@@ -6,11 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- The `mes` CLI path is configured in DSH's own **设置 → 插件 → 插件配置**. The
-  plugin exports a schema holding only that path — SMTP passwords, executor
-  mappings and send history stay in the keychain and the plugin's own database.
-  A path DSH supplies wins over `~/.dsh/storages/mes-plan-list/config.json`, and
-  is re-checked for being absolute before anything is executed with it.
+- The `mes` CLI path is configured in the DSH profile's `cordis.patch.yml`. The
+  plugin exports a `Config` schema holding only that path — SMTP passwords,
+  executor mappings and send history stay in the keychain and the plugin's own
+  database. A path the profile supplies wins over
+  `~/.dsh/storages/mes-plan-list/config.json`, and is re-checked for being
+  absolute before anything is executed with it.
 
 ### Changed
 
