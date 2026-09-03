@@ -21,6 +21,29 @@ async function git(args, timeout = 30_000) {
   return stdout.trim()
 }
 
+// 依赖安装比 git pull 慢一个数量级，超时按分钟算。
+const INSTALL_TIMEOUT_MS = 5 * 60_000
+const MANIFESTS = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'])
+
+/** 这次更新动过依赖清单没有。只看文件名，路径在哪个包下都算。 */
+export function needsDependencyInstall(files) {
+  return (files ?? []).some((file) => MANIFESTS.has(file.split('/').pop()))
+}
+
+/**
+ * 在仓库根跑 `pnpm install`。这是一个 pnpm workspace，只有仓库根那一次安装才会
+ * 装上插件自己的依赖；不碰 DSH profile 的 node_modules 与 lockfile。
+ */
+async function installDependencies(run = git) {
+  const root = await run(['rev-parse', '--show-toplevel'])
+  try {
+    await execFileAsync('pnpm', ['install'], { cwd: root, encoding: 'utf8', timeout: INSTALL_TIMEOUT_MS })
+  } catch (error) {
+    if (error?.code === 'ENOENT') throw new Error('找不到 pnpm，请先安装 pnpm，再在仓库根执行 `pnpm install`')
+    throw new Error('依赖安装失败，请在仓库根手动执行 `pnpm install`')
+  }
+}
+
 /**
  * 把 `git describe` 的输出拆成版本号与领先的提交数。
  *
@@ -36,14 +59,14 @@ function parseDescribe(described) {
 }
 
 /** 当前签出的版本。纯本地，不联网。 */
-export async function readPluginVersion() {
+export async function readPluginVersion(run = git) {
   const [commit, branch, at, subject, described] = await Promise.all([
-    git(['rev-parse', '--short', 'HEAD']),
-    git(['rev-parse', '--abbrev-ref', 'HEAD']),
-    git(['log', '-1', '--format=%cI']),
-    git(['log', '-1', '--format=%s']),
+    run(['rev-parse', '--short', 'HEAD']),
+    run(['rev-parse', '--abbrev-ref', 'HEAD']),
+    run(['log', '-1', '--format=%cI']),
+    run(['log', '-1', '--format=%s']),
     // --always：仓库尚无 tag 时退回短 sha，而不是让整块读取失败。
-    git(['describe', '--tags', '--always']),
+    run(['describe', '--tags', '--always']),
   ])
   return { commit, branch, at, subject, ...parseDescribe(described) }
 }
@@ -61,14 +84,29 @@ export async function checkPluginUpdate() {
   return { ...version, upToDate: remote === local, remoteCommit: remote.slice(0, 7) }
 }
 
-/** 拉取当前分支的新提交。 */
-export async function pullPluginUpdate() {
-  if ((await git(['status', '--porcelain'])) !== '') {
+/**
+ * 拉取当前分支的新提交，必要时补装依赖。
+ *
+ * 只 pull 不装依赖，跨过一次加依赖的提交后重启 DSH 就直接起不来，所以 `dependencies`
+ * 会如实回报 `unchanged` / `installed` / `failed`——安装失败时**不能**说更新成功。
+ */
+export async function pullPluginUpdate({ run = git, install = installDependencies } = {}) {
+  if ((await run(['status', '--porcelain'])) !== '') {
     throw new Error('仓库有未提交的改动，请先提交或还原后再更新')
   }
-  const before = await git(['rev-parse', '--short', 'HEAD'])
+  const before = await run(['rev-parse', '--short', 'HEAD'])
   // --ff-only：本地有分叉或领先时宁可失败，也不要自动合并出一个谁都没审过的状态。
-  await git(['pull', '--ff-only'], 120_000)
-  const version = await readPluginVersion()
-  return { ...version, changed: version.commit !== before, previousCommit: before }
+  await run(['pull', '--ff-only'], 120_000)
+  const version = await readPluginVersion(run)
+  const result = { ...version, changed: version.commit !== before, previousCommit: before }
+  if (!result.changed) return { ...result, dependencies: 'unchanged' }
+
+  const files = (await run(['diff', '--name-only', `${before}..HEAD`])).split('\n').filter((file) => file !== '')
+  if (!needsDependencyInstall(files)) return { ...result, dependencies: 'unchanged' }
+  try {
+    await install(run)
+    return { ...result, dependencies: 'installed' }
+  } catch (error) {
+    return { ...result, dependencies: 'failed', dependencyError: error.message }
+  }
 }
