@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-03
+
+### Changed
+
+- Plugin self-update pins `origin` to the official public HTTPS URL and
+  fast-forwards this clone to official `main`. Checking for updates also
+  compares against that remote branch, not whatever local branch name is
+  currently checked out. A dirty working tree is refused before `origin` is
+  changed.
+- The repository is public, so in-place updates no longer require a GitHub
+  login or SSH key that can read a private remote. README files document a
+  one-time terminal bridge for installs still on ≤ 0.5.1, whose updater cannot
+  repair itself before the new code arrives.
+
+### Removed
+
+- The settings page no longer shows a GitHub-authorization status line, and the
+  `/api/plugins/mes-plan-list/github-auth` route is gone. The probes existed to
+  guide private-repo pulls; after the public remote pin they only added noise.
+
 ## [0.5.1] - 2026-09-03
 
 ### Added
@@ -257,3 +277,4 @@ published to npm or the DSH plugin market.
 [0.4.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.4.0
 [0.5.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.5.0
 [0.5.1]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.5.1
+[0.5.2]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.5.2
