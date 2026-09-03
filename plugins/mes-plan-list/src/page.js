@@ -339,14 +339,13 @@ export function renderPage() {
         <button type="button" id="settings-back" class="ghost">返回列表</button>
       </div>
       <h2>插件版本</h2>
-      <p class="hint">更新会在本机仓库执行 <code>git pull --ff-only</code>，凭据由 <code>gh</code> 或 ssh-agent 持有，插件不经手；工作区有未提交改动时会拒绝。更新后需重启 DSH 才生效。</p>
+      <p class="hint">更新会把 <code>origin</code> 固定为官方 HTTPS 地址，并将本机仓库快进到官方 <code>main</code>；工作区有未提交改动时会拒绝。更新后需重启 DSH 才生效。</p>
       <div class="row">
         <span id="plugin-version" class="version">读取中…</span>
         <button type="button" id="check-plugin" class="ghost">检查更新</button>
         <button type="button" id="update-plugin" hidden>更新插件</button>
       </div>
       <p id="plugin-feedback" class="feedback" role="status"></p>
-      <p id="github-auth" class="feedback" role="status"></p>
 
       <hr class="rule">
       <h2>mes CLI 版本</h2>
@@ -502,51 +501,12 @@ export function renderPage() {
 
     const banner = document.querySelector('#auth-banner')
     const settingsView = document.querySelector('#settings-view')
-    const githubAuth = document.querySelector('#github-auth')
-    let githubAuthRequested = false
-
-    /*
-     * hint 来自后端，先 escapeHtml 再把反引号里的命令包成 <code>。顺序不能反：转义在
-     * 前，<code> 就只可能是这一行本地加的，后端字符串没有任何机会带出标签。
-     */
-    const showGithubAuth = (payload) => {
-      if (payload.state === 'ready') {
-        githubAuth.textContent = '更新所需的 GitHub 授权已就绪。'
-        githubAuth.dataset.tone = 'ok'
-        return
-      }
-      githubAuth.innerHTML = escapeHtml(payload.hint).replace(/\`([^\`]+)\`/g, '<code>$1</code>')
-      // 本机看得见私钥不代表 GitHub 接受它，但那也不是故障。既不报错也不报绿，保持中性。
-      if (payload.state === 'ssh-unverified') delete githubAuth.dataset.tone
-      else githubAuth.dataset.tone = 'error'
-    }
-
-    /*
-     * 后端要跑 git 和 gh 两条子进程才答得出这个问题，而计划列表页用不到它——所以挂在
-     * 进入设置视图时请求，只看列表的人不必付这笔开销。探针跑的全是本地命令，不联网。
-     * 成功后不再重复请求；失败则允许下次进入设置页时重试。
-     */
-    const loadGithubAuth = async () => {
-      if (githubAuthRequested) return
-      githubAuthRequested = true
-      try {
-        const response = await fetch('/api/plugins/mes-plan-list/github-auth')
-        const payload = await response.json()
-        if (!response.ok || !payload.ok) throw new Error(payload.error || '无法读取 GitHub 授权状态')
-        showGithubAuth(payload)
-      } catch (error) {
-        githubAuthRequested = false
-        githubAuth.textContent = error.message || '无法读取 GitHub 授权状态'
-        githubAuth.dataset.tone = 'error'
-      }
-    }
 
     // 视图由 URL hash 决定，刷新或前进后退都会回到用户当时看的那一页。
     const syncSettingsView = () => {
       if (isSettingsView(location.hash)) {
         document.body.dataset.view = 'settings'
         settingsView.setAttribute('data-show', '')
-        loadGithubAuth()
       } else {
         delete document.body.dataset.view
         settingsView.removeAttribute('data-show')

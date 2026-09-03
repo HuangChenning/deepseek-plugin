@@ -98,43 +98,32 @@ the cache actually spans a wide range. **清空缓存** resets that span.
 The settings panel shows the checked-out branch and commit, checks the remote
 for newer commits on click, and can update in place.
 
-Updating runs `git pull --ff-only` in the local repository. That is why this
-does not go through dshmarket or npm, both of which need a publicly installable
-source.
+The repository is **public**. Updating pins `origin` to the official HTTPS URL
+and fast-forwards this clone to official `main`. That is why this does not go
+through dshmarket or npm.
 
 The browser cannot influence what gets pulled — remote, branch, and ref are
-never taken from the request; it is always the current branch. A dirty working
-tree is refused rather than overwritten, and `--ff-only` means a diverged branch
-fails loudly instead of auto-merging into a state nobody reviewed.
+never taken from the request. A dirty working tree is refused before `origin`
+is changed, and `--ff-only` means a diverged branch fails loudly instead of
+auto-merging into a state nobody reviewed.
 
-### The update needs GitHub authorization
+### One-time bridge from ≤ v0.5.1
 
-The repository is **private**, so pulling from it requires a GitHub
-authorization that can read it. Having git installed is not enough, and neither
-is being able to browse the repository in a signed-in browser. The settings page
-shows what your machine is actually set up for, and names the command to run
-when something is missing.
+Builds through v0.5.1 still pull from the `origin` already configured on the
+machine. That code cannot repair itself before the newer updater arrives. If
+in-plugin update still fails, run this once at the repository root. It does not
+need `gh`, and it leaves uncommitted changes alone:
 
-The plugin never receives, stores, forwards, or displays a GitHub token. It
-checks whether authorization exists — it does not perform the login for you, and
-it does not change your remote URL, `~/.ssh/config`, or any git configuration.
+```sh
+test -z "$(git status --porcelain)" || { echo "commit or discard local changes first"; exit 1; }
+git remote set-url origin https://github.com/HuangChenning/deepseek-plugin.git
+git fetch origin main
+git merge --ff-only FETCH_HEAD
+pnpm install
+```
 
-Two ways to be authorized, depending on how `origin` is addressed:
-
-- **HTTPS origin** — run `gh auth login` **and** `gh auth setup-git`. Both are
-  needed: `gh auth login` has a final step that configures git for you, and it
-  can be skipped. Skip it and `gh auth token` succeeds while `git pull` still
-  fails with `could not read Username`.
-- **SSH origin** — the key must be on your GitHub account, not merely present on
-  your machine. `gh auth login` with the SSH protocol uploads it for you.
-  `ssh -T git@github.com` tells you whether GitHub accepts it. If port 22 is
-  blocked on your network, route SSH over 443 by pointing `github.com` at
-  `ssh.github.com` port 443 in `~/.ssh/config`.
-
-For an SSH origin the settings page will not claim you are ready even when a key
-is present, because a local key proves nothing about what GitHub accepts. The
-honest answer only arrives when a pull is actually attempted, so update failures
-are translated into the specific command that fixes them.
+After you reach v0.5.2 or newer, the plugin keeps `origin` on the official
+HTTPS URL, so this bridge is not needed again.
 
 ### Dependencies are installed for you
 
@@ -167,9 +156,9 @@ pnpm register
 ```
 
 The automatic dependency install described above happens only on the in-plugin
-update. Updating from a terminal with `git pull` installs nothing, so run
-`pnpm install` yourself at the repository root whenever the pull touched
-`package.json` or `pnpm-lock.yaml`.
+update. Updating from a terminal installs nothing, so run `pnpm install`
+yourself at the repository root whenever the fetch touched `package.json` or
+`pnpm-lock.yaml`.
 
 ## Settings
 

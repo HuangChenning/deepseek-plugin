@@ -328,65 +328,6 @@ test('rejects plugin update methods other than POST', async () => {
 })
 
 
-test('serves the GitHub authorization state the settings page needs', async () => {
-  const { handleGithubAuth } = createHandlers({
-    readGithubAuth: async () => ({ state: 'logged-out', hint: '执行 gh auth login 登录 GitHub' }),
-  })
-  const response = makeResponse()
-
-  await handleGithubAuth(makeRequest(), response)
-
-  assert.equal(response.statusCode, 200)
-  assert.deepEqual(JSON.parse(response.body),
-    { ok: true, state: 'logged-out', hint: '执行 gh auth login 登录 GitHub' })
-})
-
-test('rejects GitHub auth methods other than GET', async () => {
-  const { handleGithubAuth } = createHandlers()
-  const response = makeResponse()
-
-  await handleGithubAuth(makeRequest({ method: 'POST' }), response)
-
-  assert.equal(response.statusCode, 405)
-  assert.equal(response.headers.allow, 'GET')
-})
-
-// 探针跑的是本地命令，失败是机器环境的问题而非插件 bug，归 502 不归 500。错误文案
-// 写死：探针的原始错误里可能带着命令输出，不能顺手拼进响应体。
-test('reports a failed GitHub auth probe as a gateway error', async () => {
-  const { handleGithubAuth } = createHandlers({
-    readGithubAuth: async () => { throw new Error('spawn git ENOENT gho_leakedbyaccident') },
-  })
-  const response = makeResponse()
-
-  await handleGithubAuth(makeRequest(), response)
-
-  assert.equal(response.statusCode, 502)
-  assert.doesNotMatch(response.body, /gho_/u)
-  assert.match(JSON.parse(response.body).error, /GitHub 授权状态/u)
-})
-
-/*
- * 这条路由唯一的高危失败模式是把凭据带出去。邻近的 handleAuth / handlePlugin 都把探针
- * 返回值整个展开进响应体，这条不能照抄：探针一旦长出带 token 的字段就会直接泄漏。所以
- * 替身故意多返回两个脏字段，逼实现只挑 state 和 hint。
- */
-test('never lets a GitHub credential reach the response body', async () => {
-  const { handleGithubAuth } = createHandlers({
-    readGithubAuth: async () => ({
-      state: 'ready',
-      hint: '',
-      token: 'gho_averysecretvalue',
-      stderr: '命令输出里混着 ghp_anothersecret',
-    }),
-  })
-  const response = makeResponse()
-
-  await handleGithubAuth(makeRequest(), response)
-
-  assert.doesNotMatch(response.body, /gho_|ghp_/u)
-  assert.deepEqual(Object.keys(JSON.parse(response.body)).sort(), ['hint', 'ok', 'state'])
-})
 test('registers the page, query, config, auth, CLI, cache, and mail routes', async () => {
   const { apply } = await import('../src/index.js')
   const routes = []
@@ -403,7 +344,6 @@ test('registers the page, query, config, auth, CLI, cache, and mail routes', asy
     '/api/plugins/mes-plan-list/cache',
     '/api/plugins/mes-plan-list/plugin',
     '/api/plugins/mes-plan-list/plugin/update',
-    '/api/plugins/mes-plan-list/github-auth',
     '/api/plugins/mes-plan-list/mail/settings',
     '/api/plugins/mes-plan-list/mail/settings/test',
     '/api/plugins/mes-plan-list/mail/settings/password',

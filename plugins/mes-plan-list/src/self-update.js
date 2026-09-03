@@ -1,13 +1,10 @@
 /**
  * 插件自身的版本查看与更新，基于本机的 git 工作区。
  *
- * 走 git 而不是 dshmarket / npm 的原因：仓库是 private 的，包管理器那条路要求一个
- * 可公开安装的来源。凭据由 `gh` 或 ssh-agent 持有，插件不经手 token——但「使用者
- * 本来就配好了」并不成立，所以 github-auth.js 负责检测，本文件负责把联网失败翻译
- * 成能照做的一句话。
+ * 走 git 而不是 dshmarket / npm：插件从公开仓库原地更新，不单独发布包。
  *
- * 安全：浏览器不能影响拉取的内容。remote、分支、ref 一律不接受参数，只做当前
- * 分支的 `pull --ff-only`；工作区不干净时拒绝，避免冲掉本地未提交的改动。
+ * 安全：浏览器不能影响拉取的内容。remote、分支、ref 一律不接受参数，只从官方
+ * HTTPS remote 快进到 main；工作区不干净时先拒绝，连 origin 都不会改。
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -16,52 +13,27 @@ import { fileURLToPath } from 'node:url'
 
 const execFileAsync = promisify(execFile)
 const HERE = dirname(fileURLToPath(import.meta.url))
+const OFFICIAL_REMOTE = 'https://github.com/HuangChenning/deepseek-plugin.git'
+const OFFICIAL_BRANCH = 'main'
 
 async function git(args, timeout = 30_000) {
   const { stdout } = await execFileAsync('git', ['-C', HERE, ...args], { encoding: 'utf8', timeout })
   return stdout.trim()
 }
 
-/*
- * git 联网失败时的原文对使用者毫无指向性，而每一种失败要做的事完全不同。顺序有讲究：
- * `Repository not found` 必须排在认证失败之前——GitHub 对看不见的 private 仓库回 404，
- * 把它归进「没登录」会让人反复重登一个本来就登着的账号，而真正缺的是仓库权限。
- *
- * 最后两条来自 2026-09-03 在作者机器上的实测，不是设想出来的情况。
- */
-const GIT_FAILURES = [
-  [/Repository not found/iu, '已通过认证，但这个 GitHub 账号没有该仓库的访问权限。请让仓库管理员把你加进来——重新登录解决不了这个问题。'],
-  [/could not read Username/iu, 'git 还没用上 GitHub 凭据。执行 `gh auth setup-git` 之后再更新。'],
-  [/Authentication failed/iu, 'GitHub 凭据无效或已过期。执行 `gh auth login` 重新登录。'],
-  [/Permission denied \(publickey\)/iu, 'GitHub 不接受本机的 SSH 公钥。执行 `gh auth login` 并选择 SSH 协议，它会把公钥挂到账号上。'],
-  [/Connection timed out|port 22/iu, '连不上 GitHub 的 22 端口。在 `~/.ssh/config` 里把 github.com 改走 `ssh.github.com` 的 443 端口。'],
-]
-
 /**
- * 把 git 的失败输出翻译成一句能照做的话；认不出来就返回空串，交回给调用方。
- *
- * 宁可漏翻也不能过翻：把「工作区不干净」误报成「没登录」，会让人去折腾凭据，而真正
- * 要做的是提交本地改动。
- */
-export function describeGitFailure(stderr) {
-  const text = String(stderr ?? '')
-  for (const [pattern, message] of GIT_FAILURES) if (pattern.test(text)) return message
-  return ''
-}
-
-/**
- * 跑一次要联网的 git 操作。失败一律经过翻译：git 的 stderr 里带着 remote URL，而
- * private 仓库的地址本身就不该送进浏览器，所以认不出来的失败也只给通用文案。
+ * 跑一次要联网的 git 操作。失败只给固定文案，不把可能带 remote URL 的 git stderr
+ * 送进浏览器。
  */
 async function overNetwork(work, fallback) {
   try {
     return await work()
-  } catch (error) {
-    throw new Error(describeGitFailure(error?.stderr ?? error?.message ?? '') || fallback)
+  } catch {
+    throw new Error(fallback)
   }
 }
 
-// 依赖安装比 git pull 慢一个数量级，超时按分钟算。
+// 依赖安装比 git 更新慢一个数量级，超时按分钟算。
 const INSTALL_TIMEOUT_MS = 5 * 60_000
 const MANIFESTS = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'])
 
@@ -112,23 +84,23 @@ export async function readPluginVersion(run = git) {
 }
 
 /**
- * 问一次远程是否有新提交。用 `ls-remote` 而不是 `fetch`：只读，不动本地 .git。
+ * 问一次官方 main 是否有新提交。用 `ls-remote` 而不是 `fetch`：只读，不动本地 .git。
  * 只在用户点击时调用——打开页面不该悄悄联网。
  */
-export async function checkPluginUpdate() {
-  const version = await readPluginVersion()
-  const local = await git(['rev-parse', 'HEAD'])
+export async function checkPluginUpdate({ run = git, readVersion = readPluginVersion } = {}) {
+  const version = await readVersion(run)
+  const local = await run(['rev-parse', 'HEAD'])
   const line = await overNetwork(
-    () => git(['ls-remote', 'origin', version.branch], 20_000),
-    '检查更新失败，请确认本机能访问 GitHub 上的这个仓库',
+    () => run(['ls-remote', OFFICIAL_REMOTE, OFFICIAL_BRANCH], 20_000),
+    '检查更新失败，请确认本机能访问 GitHub',
   )
   const remote = line.split(/\s+/)[0] ?? ''
-  if (remote === '') throw new Error('远程没有同名分支，无法检查更新')
+  if (remote === '') throw new Error('官方仓库没有 main 分支，无法检查更新')
   return { ...version, upToDate: remote === local, remoteCommit: remote.slice(0, 7) }
 }
 
 /**
- * 拉取当前分支的新提交，必要时补装依赖。
+ * 把 origin 固定为官方 HTTPS 地址，快进到官方 main，必要时补装依赖。
  *
  * 只 pull 不装依赖，跨过一次加依赖的提交后重启 DSH 就直接起不来，所以 `dependencies`
  * 会如实回报 `unchanged` / `installed` / `failed`——安装失败时**不能**说更新成功。
@@ -138,8 +110,12 @@ export async function pullPluginUpdate({ run = git, install = installDependencie
     throw new Error('仓库有未提交的改动，请先提交或还原后再更新')
   }
   const before = await run(['rev-parse', '--short', 'HEAD'])
-  // --ff-only：本地有分叉或领先时宁可失败，也不要自动合并出一个谁都没审过的状态。
-  await overNetwork(() => run(['pull', '--ff-only'], 120_000), '更新失败，请确认本机能访问 GitHub 上的这个仓库')
+  await overNetwork(async () => {
+    await run(['remote', 'set-url', 'origin', OFFICIAL_REMOTE])
+    await run(['fetch', 'origin', OFFICIAL_BRANCH], 120_000)
+    // --ff-only：本地有分叉或领先时宁可失败，也不要自动合并出一个谁都没审过的状态。
+    await run(['merge', '--ff-only', 'FETCH_HEAD'])
+  }, '更新失败，请确认本机能访问 GitHub，且当前提交可以快进到官方 main')
   const version = await readPluginVersion(run)
   const result = { ...version, changed: version.commit !== before, previousCommit: before }
   if (!result.changed) return { ...result, dependencies: 'unchanged' }

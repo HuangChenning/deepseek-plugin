@@ -36,10 +36,6 @@
   `dsh --profile web`，让 profile 存在。
 - **`mes` CLI** 且已登录。可用 `mes auth status` 检查；未登录时插件会显示提示条
   并且查询会失败。
-- **一条能读取本 private 仓库的 GitHub 授权**，日后在插件内原地升级时需要它。
-  `origin` 是 HTTPS 时，执行 `gh auth login` 之后再执行 `gh auth setup-git`；
-  `origin` 是 SSH 时，公钥需已挂到你的 GitHub 账号上。走 SSH 就不需要装 `gh`。
-  插件的设置页会显示本机实际配到了哪一步，且自身不经手任何 token。
 
 ### 安装
 
@@ -73,20 +69,38 @@ MES CLI；本仓库不包含、也不声称包含任何真实的 MES 查询结�
 
 ### 更新
 
-在插件页面使用**设置 → 插件版本 → 检查更新**，它会在这个克隆里执行
-`git pull --ff-only`。等价的终端命令：
+本仓库已公开。在插件页面使用**设置 → 插件版本 → 检查更新**：它会把
+`origin` 固定为官方 HTTPS 地址，并将本机仓库快进到官方 `main`。当 `origin`
+已经指向该地址时，等价的终端命令：
 
 ```sh
-git pull --ff-only
+git fetch origin main
+git merge --ff-only FETCH_HEAD
 ```
 
 两种方式都需要在之后**重启 DSH**，新代码才会被加载。插件不发布到 npm，也不进
 DSH 插件市场；本仓库是唯一来源。
 
 插件内的更新会在这次拉取改动了 `package.json` 或 `pnpm-lock.yaml` 时替你装好新
-依赖；终端里的 `git pull` 不会，遇到这种情况请自己在仓库根执行 `pnpm install`。
+依赖；终端里的更新不会，遇到这种情况请自己在仓库根执行 `pnpm install`。
 更新后**不需要**重新执行 `pnpm register`——只有移动或重命名这个克隆之后才需要，
 因为那会让 profile 里的符号链接指向旧路径。
+
+#### 从 ≤ v0.5.1 的一次性升级桥接
+
+v0.5.1 及更早的升级器仍按你本机现有的 `origin` 拉取，在成功拿到新版代码之前
+无法自我修复。若插件内更新仍然失败，在仓库根执行一次下面的命令。它不依赖
+`gh`，也不会覆盖未提交改动：
+
+```sh
+test -z "$(git status --porcelain)" || { echo "请先提交或还原未提交改动"; exit 1; }
+git remote set-url origin https://github.com/HuangChenning/deepseek-plugin.git
+git fetch origin main
+git merge --ff-only FETCH_HEAD
+pnpm install
+```
+
+升到 v0.5.2 或更新版本后，插件会固定走官方 HTTPS，此后不必再跑这组步骤。
 
 ### 本地数据
 
