@@ -21,6 +21,45 @@ async function git(args, timeout = 30_000) {
   return stdout.trim()
 }
 
+/*
+ * git 联网失败时的原文对使用者毫无指向性，而每一种失败要做的事完全不同。顺序有讲究：
+ * `Repository not found` 必须排在认证失败之前——GitHub 对看不见的 private 仓库回 404，
+ * 把它归进「没登录」会让人反复重登一个本来就登着的账号，而真正缺的是仓库权限。
+ *
+ * 最后两条来自 2026-09-03 在作者机器上的实测，不是设想出来的情况。
+ */
+const GIT_FAILURES = [
+  [/Repository not found/iu, '已通过认证，但这个 GitHub 账号没有该仓库的访问权限。请让仓库管理员把你加进来——重新登录解决不了这个问题。'],
+  [/could not read Username/iu, 'git 还没用上 GitHub 凭据。执行 `gh auth setup-git` 之后再更新。'],
+  [/Authentication failed/iu, 'GitHub 凭据无效或已过期。执行 `gh auth login` 重新登录。'],
+  [/Permission denied \(publickey\)/iu, 'GitHub 不接受本机的 SSH 公钥。执行 `gh auth login` 并选择 SSH 协议，它会把公钥挂到账号上。'],
+  [/Connection timed out|port 22/iu, '连不上 GitHub 的 22 端口。在 `~/.ssh/config` 里把 github.com 改走 `ssh.github.com` 的 443 端口。'],
+]
+
+/**
+ * 把 git 的失败输出翻译成一句能照做的话；认不出来就返回空串，交回给调用方。
+ *
+ * 宁可漏翻也不能过翻：把「工作区不干净」误报成「没登录」，会让人去折腾凭据，而真正
+ * 要做的是提交本地改动。
+ */
+export function describeGitFailure(stderr) {
+  const text = String(stderr ?? '')
+  for (const [pattern, message] of GIT_FAILURES) if (pattern.test(text)) return message
+  return ''
+}
+
+/**
+ * 跑一次要联网的 git 操作。失败一律经过翻译：git 的 stderr 里带着 remote URL，而
+ * private 仓库的地址本身就不该送进浏览器，所以认不出来的失败也只给通用文案。
+ */
+async function overNetwork(work, fallback) {
+  try {
+    return await work()
+  } catch (error) {
+    throw new Error(describeGitFailure(error?.stderr ?? error?.message ?? '') || fallback)
+  }
+}
+
 // 依赖安装比 git pull 慢一个数量级，超时按分钟算。
 const INSTALL_TIMEOUT_MS = 5 * 60_000
 const MANIFESTS = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'])
@@ -78,7 +117,10 @@ export async function readPluginVersion(run = git) {
 export async function checkPluginUpdate() {
   const version = await readPluginVersion()
   const local = await git(['rev-parse', 'HEAD'])
-  const line = await git(['ls-remote', 'origin', version.branch], 20_000)
+  const line = await overNetwork(
+    () => git(['ls-remote', 'origin', version.branch], 20_000),
+    '检查更新失败，请确认本机能访问 GitHub 上的这个仓库',
+  )
   const remote = line.split(/\s+/)[0] ?? ''
   if (remote === '') throw new Error('远程没有同名分支，无法检查更新')
   return { ...version, upToDate: remote === local, remoteCommit: remote.slice(0, 7) }
@@ -96,7 +138,7 @@ export async function pullPluginUpdate({ run = git, install = installDependencie
   }
   const before = await run(['rev-parse', '--short', 'HEAD'])
   // --ff-only：本地有分叉或领先时宁可失败，也不要自动合并出一个谁都没审过的状态。
-  await run(['pull', '--ff-only'], 120_000)
+  await overNetwork(() => run(['pull', '--ff-only'], 120_000), '更新失败，请确认本机能访问 GitHub 上的这个仓库')
   const version = await readPluginVersion(run)
   const result = { ...version, changed: version.commit !== before, previousCommit: before }
   if (!result.changed) return { ...result, dependencies: 'unchanged' }
