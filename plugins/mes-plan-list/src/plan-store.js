@@ -166,7 +166,7 @@ export class PlanStore {
     }
   }
 
-  /** 清空缓存，把同步范围重置回空——例如不再关心很早以前的数据。 */
+  /** 清空缓存，连同同步时间一起抹掉；下次查询会重新做一次完整同步。 */
   clear() {
     const db = this.#open()
     db.exec('BEGIN')

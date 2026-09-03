@@ -30,6 +30,11 @@ export function classifySendError(error) {
   return { transient: false, code, message: MESSAGES.unknown }
 }
 
+// nodemailer 默认等 120s 连接、30s greeting、600s 空闲。发信是同步阻塞界面的操作，
+// 中途既没有进度也不能取消，这些默认值意味着一台不吭声的服务器能把设置页挂上好几分钟。
+// 下面的上限短到用户还愿意等，又远长过任何一次正常投递——本插件只发纯文本。
+const TIMEOUTS = { connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 60000 }
+
 /** 只有两种模式：隐式 TLS 与强制 STARTTLS，两者都不允许退回明文。 */
 export function createTransport(settings, password, { nodemailer } = {}) {
   if (settings?.securityMode !== 'tls' && settings?.securityMode !== 'starttls') {
@@ -41,6 +46,7 @@ export function createTransport(settings, password, { nodemailer } = {}) {
     secure: settings.securityMode === 'tls',
     requireTLS: true,
     auth: { user: settings.smtpUsername, pass: password },
+    ...TIMEOUTS,
   })
 }
 

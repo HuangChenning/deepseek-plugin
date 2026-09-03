@@ -35,6 +35,9 @@ test('builds an implicit TLS transport for the tls security mode', () => {
     secure: true,
     requireTLS: true,
     auth: { user: 'noreply@example.invalid', pass: 'secret-pass' },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 60000,
   })
 })
 
@@ -49,6 +52,9 @@ test('requires a STARTTLS upgrade instead of allowing a plaintext session', () =
     secure: false,
     requireTLS: true,
     auth: { user: 'noreply@example.invalid', pass: 'secret-pass' },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 60000,
   })
 })
 
@@ -123,4 +129,16 @@ test('classifies only the documented transport failures as transient', () => {
 test('a missing mail transport dependency does not take down the whole module', async () => {
   const source = await readFile(new URL('../src/mailer.js', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /^import .+ from 'nodemailer'/mu)
+})
+
+test('caps every stage of the SMTP session so a stalled server cannot hang the page', () => {
+  const nodemailer = fakeNodemailer()
+  createTransport(settings, 'secret-pass', { nodemailer })
+
+  // nodemailer 的默认值是 120s 连接、30s greeting、600s 空闲。设置页在整段等待里
+  // 既没有进度也不能取消，实测一次卡在 TLS 升级之后的服务端就让页面挂了约两分钟。
+  // 上限必须短到用户还愿意等，同时长过任何正常的一次投递。
+  const { connectionTimeout, greetingTimeout, socketTimeout } = nodemailer.calls[0]
+  assert.deepEqual({ connectionTimeout, greetingTimeout, socketTimeout },
+    { connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 60000 })
 })
