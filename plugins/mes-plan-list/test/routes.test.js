@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Readable } from 'node:stream'
 
-import { createHandlers } from '../src/index.js'
+import { Config, createHandlers } from '../src/index.js'
 
 function makeRequest({ method = 'GET', contentType = 'application/json', body = '' } = {}) {
   const request = Readable.from(body === '' ? [] : [Buffer.from(body)])
@@ -25,6 +25,17 @@ function makeResponse() {
     },
   }
 }
+
+
+/*
+ * Harness 的「插件配置」表单由这个 schema 生成。它只承载非机密的 mes 路径——
+ * SMTP 密码、邮箱映射和发送历史都留在插件自己的库和钥匙串里。
+ */
+test('exports a Harness configuration schema for the non-secret mes path', () => {
+  assert.equal(Config({ mesPath: '' }).mesPath, '')
+  assert.equal(Config({ mesPath: '/opt/homebrew/bin/mes' }).mesPath, '/opt/homebrew/bin/mes')
+  assert.equal(Config({}).mesPath, '', '未配置时必须是空路径，表示沿用 PATH')
+})
 
 test('serves the stored mes path', async () => {
   const { handleConfig } = createHandlers({ loadConfig: async () => ({ mesPath: '/opt/homebrew/bin/mes' }) })

@@ -114,9 +114,30 @@ adds a runtime dependency, run `pnpm install` too.
 
 ## Settings
 
-The page's **设置** panel configures the absolute path to the `mes` binary.
-Leave it empty to use `mes` from PATH. Setting it fixes the case where a DSH
-started from a GUI or launchd cannot resolve `mes`.
+The absolute path to the `mes` binary is set in the DSH profile's cordis config,
+not on the plugin page. Add an id-targeted entry to
+`~/.dsh/profiles/<profile>/cordis.patch.yml`:
+
+```yaml
+- id: mes-plan-list
+  config:
+    mesPath: /opt/homebrew/bin/mes
+```
+
+The plugin exports a `Config` schema, so cordis validates that block before it
+reaches `apply`. Leave `mesPath` out to use `mes` from PATH. Setting it fixes
+the case where a DSH started from a GUI or launchd cannot resolve `mes`.
+`~/.dsh/storages/mes-plan-list/config.json` still works as a fallback for a DSH
+that supplies no configuration, but the profile value wins whenever it is set.
+
+DSH's **设置 → 插件 → 插件配置** tab does not list this plugin: that tab pairs a
+host settings namespace with a browser card built by an unpublished client
+bundle preset, which a plugin outside the DSH repo cannot produce.
+
+A `mesPath` that is not an absolute path is rejected by the schema check in
+`apply`, which fails the reload. cordis keeps the previously loaded instance
+running, so the plugin page still answers with the old path — check the DSH
+terminal for the loader error rather than the page.
 
 The path decides which binary the host executes, so a submitted value is only
 stored after it passes all of: absolute path, no control characters, and a

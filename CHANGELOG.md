@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- The `mes` CLI path is configured in the DSH profile's `cordis.patch.yml`. The
+  plugin exports a `Config` schema holding only that path — SMTP passwords,
+  executor mappings and send history stay in the keychain and the plugin's own
+  database. A path the profile supplies wins over
+  `~/.dsh/storages/mes-plan-list/config.json`, and is re-checked for being
+  absolute before anything is executed with it.
+
+### Changed
+
+- Plugin settings are a page of their own instead of a panel expanding above
+  the plan list. The page has its own URL hash (`#settings`), so a reload stays
+  on it and browser back/forward moves between the plan list and the settings
+  page. Leaving settings does not reload the page, so query results and any
+  cross-page plan selection survive the round trip.
+
+### Removed
+
+- The settings page no longer edits the `mes` CLI path, so the path stops
+  having two editable sources. The validating API route is unchanged, and
+  `config.json` still works as a fallback.
+
 ## [0.5.0] - 2026-09-03
 
 ### Added

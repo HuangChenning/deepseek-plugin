@@ -6,7 +6,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { readConfig } from './config.js'
+import { readConfig, validateMesPath } from './config.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -22,8 +22,20 @@ const TIMEOUT_MS = 30_000
  */
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 
-/** 配置了绝对路径就用它，否则沿用 PATH 里的 `mes`。 */
+/**
+ * Harness「插件配置」里的 mes 路径。空字符串表示 Harness 没配，此时才回退到旧的
+ * config.json。这个值走 apply() 注入，因为解析二进制的是本模块内部的调用，
+ * 拿不到 Host 传给插件的配置对象。
+ */
+let hostMesPath = ''
+
+export function setHostMesPath(value) {
+  hostMesPath = validateMesPath(value ?? '')
+}
+
+/** Harness 配置优先，其次旧 config.json 的绝对路径，都没有则沿用 PATH 里的 `mes`。 */
 export async function resolveMesBinary(config = undefined) {
+  if (hostMesPath !== '') return hostMesPath
   const { mesPath } = config ?? (await readConfig())
   return mesPath === '' ? 'mes' : mesPath
 }
