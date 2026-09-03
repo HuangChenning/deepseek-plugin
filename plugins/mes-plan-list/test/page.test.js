@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyFilterSelection, formatImportError, paginatePlans } from '../src/page.js'
+import { applyFilterSelection, formatCacheSummary, formatImportError, paginatePlans } from '../src/page.js'
 
 test('filter selection refreshes valid queries after updating the picker state', () => {
   const events = []
@@ -405,4 +405,12 @@ test('an unverified SSH setup is painted as neither ready nor broken', () => {
   assert.match(show, /'ssh-unverified'/, 'ssh-unverified 需要与其他失败状态区别对待')
   assert.match(show, /delete githubAuth\.dataset\.tone/, 'ssh-unverified 不能带上报错色')
   assert.match(show, /state === 'ready'/, 'ready 才允许显示为已就绪')
+})
+
+test('cache summary states only what the store actually knows', () => {
+  // 0.3.0 起同步抓取全部计划并整表替换，缓存是一份完整副本，「覆盖到哪个日期范围」
+  // 这个概念随之消失，store.summary() 也只返回 count 与 syncedAt。设置页却仍在拼
+  // startDate/endDate，于是把两个不存在的字段渲染成了「覆盖 undefined ~ undefined」。
+  assert.equal(formatCacheSummary({ count: 0, syncedAt: '' }), '本机尚无缓存')
+  assert.equal(formatCacheSummary({ count: 8044, syncedAt: '2026-09-03T00:32:30.000Z' }), '8044 条')
 })

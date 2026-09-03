@@ -15,6 +15,16 @@ export function paginatePlans(plans, requestedPage, pageSize) {
   return { items: plans.slice(start, start + pageSize), page, totalPages, total }
 }
 
+/**
+ * 缓存概况的一行文案。
+ *
+ * 只说条数：同步抓的是全部计划并整表替换，缓存因此是一份完整副本，没有「覆盖到哪个
+ * 日期范围」可言，`summary()` 也不返回这样的字段。同步时间在页面别处已经显示过了。
+ */
+export function formatCacheSummary(payload) {
+  return payload.count === 0 ? '本机尚无缓存' : payload.count + ' 条'
+}
+
 /** 只有「已逾期未结束」(status 3) 的计划能进入风险交底邮件。 */
 export function isOverdue(plan) {
   return Number(plan?.status) === 3
@@ -468,6 +478,7 @@ export function renderPage() {
     const paginatePlans = ${paginatePlans}
     const isOverdue = ${isOverdue}
     const isSettingsView = ${isSettingsView}
+    const formatCacheSummary = ${formatCacheSummary}
     const toggleSelection = ${toggleSelection}
     const setPageSelection = ${setPageSelection}
     const pageSelectionState = ${pageSelectionState}
@@ -832,9 +843,7 @@ export function renderPage() {
     const clearCache = document.querySelector('#clear-cache')
 
     const renderCache = (payload) => {
-      cacheInfo.textContent = payload.count === 0
-        ? '本机尚无缓存'
-        : payload.count + ' 条，覆盖 ' + payload.startDate + ' ~ ' + payload.endDate
+      cacheInfo.textContent = formatCacheSummary(payload)
     }
 
     const loadCache = async () => {

@@ -53,6 +53,16 @@ All notable changes to this project will be documented in this file.
   resets git's accumulated list, so a config where the empty value comes after
   `gh`'s leaves git with no helper at all — and the page used to call that
   ready. A generic `credential.helper` with no URL section is now seen too.
+- Sending mail now caps every stage of the SMTP session (15 s to connect, 15 s
+  for the greeting, 60 s of socket idle) instead of using nodemailer's defaults
+  of 120 s / 30 s / 600 s. A server that goes quiet after the TLS upgrade used
+  to leave the settings page waiting about two minutes with no progress and no
+  way to cancel.
+- The settings page's cache line said `覆盖 undefined ~ undefined`. Syncing has
+  fetched every plan and replaced the table wholesale since 0.3.0, so the cache
+  is a complete copy and has no covered date range — the page was formatting two
+  fields the store has never returned. It now reports the row count alone.
+
 - A git operation that fails for authorization reasons now says what to do
   instead of showing git's own wording. A repository the account cannot see is
   distinguished from a session that is not logged in, so a permissions problem
