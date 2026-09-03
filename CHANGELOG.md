@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Plugin settings are a page of their own instead of a panel expanding above
+  the plan list. The page has its own URL hash (`#settings`), so a reload stays
+  on it and browser back/forward moves between the plan list and the settings
+  page. Leaving settings does not reload the page, so query results and any
+  cross-page plan selection survive the round trip.
+
 ## [0.5.0] - 2026-09-03
 
 ### Added
