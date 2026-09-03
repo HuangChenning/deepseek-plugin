@@ -97,6 +97,23 @@ async function hasSshKey() {
   }
 }
 
+// `gh auth setup-git` 写进配置的 helper 长这样；只认这个子串，gh 的路径因机器而异。
+const GH_CREDENTIAL_HELPER = 'gh auth git-credential'
+
+/**
+ * git 拉 github.com 时实际会不会用上 gh 的凭据 helper。
+ *
+ * 解析交给 `--get-urlmatch` 而不是自己扫 `--get-all`：helper 的**空值**在 git 语义
+ * 里是把已累积的列表整个重置掉，所以「配置里出现过 gh」不等于「git 会用它」——空值
+ * 排在 gh 后面时 git 一个 helper 都不用。自己扫会把这种配置报成已就绪，而 `git pull`
+ * 会卡在要用户名密码，正是本模块最不该犯的错。`--get-urlmatch` 还能看见不带 URL 段
+ * 的通用 `credential.helper`，那条键 `--get-all` 是够不着的。
+ */
+export async function hasGhCredentialHelper() {
+  const helpers = await probeOutput('git', ['-C', HERE, 'config', '--get-urlmatch', 'credential.helper', 'https://github.com'])
+  return helpers.includes(GH_CREDENTIAL_HELPER)
+}
+
 /**
  * 跑本地探针并定态。全程不联网——打开设置页不该悄悄发请求，所以用 `gh auth token`
  * （只读本机 keyring）而不是会调 API 的 `gh auth status`。
@@ -108,12 +125,11 @@ export async function readGithubAuth() {
 
   if (protocol === 'https') {
     const gh = await probeStatus('gh', ['auth', 'token'])
-    const helper = await probeOutput('git', ['-C', HERE, 'config', '--get-all', 'credential.https://github.com.helper'])
     return classifyGithubAuth({
       remote,
       ghInstalled: gh !== 'missing',
       loggedIn: gh === 'ok',
-      gitHelper: helper.includes('gh auth git-credential'),
+      gitHelper: await hasGhCredentialHelper(),
     })
   }
   if (protocol === 'ssh') return classifyGithubAuth({ remote, sshKey: await hasSshKey() })
