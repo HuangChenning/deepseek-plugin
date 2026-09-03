@@ -361,7 +361,7 @@ export function renderPage() {
 
       <hr class="rule">
       <h2>本地缓存</h2>
-      <p class="hint">查询结果保存在本机数据库里，不会上传。同步时会自动覆盖此前缓存过的全部日期范围，因此不会残留已在 MES 侧删除的计划——缓存范围越大，同步越慢。清空缓存可把范围重置。</p>
+      <p class="hint">查询结果保存在本机数据库里，不会上传。同步会抓取全部计划并整表替换，因此不会残留已在 MES 侧删除的计划；此后任何日期窗口都由这份完整副本在本地即时回答。清空缓存后，下次查询会重新完整同步一次。</p>
       <div class="row">
         <span id="cache-info" class="version">读取中…</span>
         <button type="button" id="clear-cache" class="ghost">清空缓存</button>
