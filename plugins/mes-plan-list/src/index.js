@@ -7,7 +7,6 @@ import { isUpdating, readAuthStatus, readCliVersion, readMesVersion, readUpdateS
 import { PlanStore } from './plan-store.js'
 import { queryWorkHours } from './work-hours.js'
 import { checkPluginUpdate, pullPluginUpdate, readPluginVersion } from './self-update.js'
-import { readGithubAuth as readGithubAuthStatus } from './github-auth.js'
 import { queryPlanById } from './plan-query.js'
 import { MailStore, profileKey } from './mail-store.js'
 import { validateMailSettings } from './mail-settings.js'
@@ -265,7 +264,6 @@ export function createHandlers({
   readPlugin = readPluginVersion,
   checkPlugin = checkPluginUpdate,
   updatePlugin = pullPluginUpdate,
-  readGithubAuth = readGithubAuthStatus,
   mailStore = defaultMailStore,
   readMailPassword = readPassword,
   saveMailPassword = writePassword,
@@ -429,23 +427,6 @@ export function createHandlers({
         writeJson(response, 200, { ok: true, ...(await updatePlugin()) })
       } catch (error) {
         writeJson(response, 502, { ok: false, error: error.message || '插件更新失败' })
-      }
-    },
-    /*
-     * 只挑 state 和 hint 两个字段，绝不像邻近两条那样把探针返回值整个展开：探针以后
-     * 多长出一个字段，就可能把凭据顺着响应体带出去。502 的文案也写死，探针的原始
-     * 错误里可能夹着命令输出。
-     */
-    async handleGithubAuth(request, response) {
-      if (request.method !== 'GET') {
-        writeJson(response, 405, { ok: false, error: '仅支持 GET 请求' }, { allow: 'GET' })
-        return
-      }
-      try {
-        const { state, hint } = await readGithubAuth()
-        writeJson(response, 200, { ok: true, state, hint })
-      } catch {
-        writeJson(response, 502, { ok: false, error: '无法读取 GitHub 授权状态' })
       }
     },
     async handleCache(request, response) {
@@ -638,7 +619,6 @@ export function apply(ctx, config = {}) {
   const {
     handlePage, handleQuery, handleConfig, handleAuth,
     handleCli, handleCliUpdate, handleCache, handlePlugin, handlePluginUpdate,
-    handleGithubAuth,
     handleMailSettings, handleMailSettingsTest, handleMailPassword,
     handleMailMappings, handleMailMappingTemplate, handleMailMappingExport,
     handleMailImportPreview, handleMailImportCommit,
@@ -653,7 +633,6 @@ export function apply(ctx, config = {}) {
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/cache', handler: handleCache })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/plugin', handler: handlePlugin })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/plugin/update', handler: handlePluginUpdate })
-  ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/github-auth', handler: handleGithubAuth })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/mail/settings', handler: handleMailSettings })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/mail/settings/test', handler: handleMailSettingsTest })
   ctx.webServer.register({ kind: 'exact', path: '/api/plugins/mes-plan-list/mail/settings/password', handler: handleMailPassword })

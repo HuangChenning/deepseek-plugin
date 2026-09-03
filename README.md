@@ -40,12 +40,6 @@ for the SMTP, Keychain, and mapping setup.
   started it, so the profile exists.
 - **The `mes` CLI**, authenticated. Check with `mes auth status`; the plugin
   shows a banner and refuses to return data when it is not logged in.
-- **A GitHub authorization that can read this private repository**, needed to
-  update the plugin in place later. For an HTTPS `origin`, `gh auth login`
-  followed by `gh auth setup-git`; for an SSH `origin`, a key that is already on
-  your GitHub account. You do not need `gh` if you use SSH. The plugin's
-  settings page reports what your machine is set up for and never handles a
-  token itself.
 
 ### Install
 
@@ -83,11 +77,14 @@ real MES plan query result.
 
 ### Updating
 
-Use **设置 → 插件版本 → 检查更新** on the plugin page, which runs
-`git pull --ff-only` in this clone. Equivalently, from a terminal:
+This repository is public. Use **设置 → 插件版本 → 检查更新** on the plugin
+page: it pins `origin` to the official HTTPS URL and fast-forwards this clone
+to official `main`. Equivalently, from a terminal once `origin` already points
+at that URL:
 
 ```sh
-git pull --ff-only
+git fetch origin main
+git merge --ff-only FETCH_HEAD
 ```
 
 Either way, **restart DSH** afterwards so it loads the new code. The plugin is
@@ -95,10 +92,28 @@ not published to npm or the DSH plugin market; this repository is the only
 source.
 
 The in-plugin update installs new dependencies for you when the pull changed
-`package.json` or `pnpm-lock.yaml`; a terminal `git pull` does not, so run
+`package.json` or `pnpm-lock.yaml`; a terminal update does not, so run
 `pnpm install` yourself in that case. `pnpm register` does not need re-running
 after an update — only after moving or renaming this clone, which leaves the
 profile's symlink pointing at the old path.
+
+#### One-time bridge from ≤ v0.5.1
+
+Builds through v0.5.1 still pull from whatever `origin` you already have, and
+cannot fix themselves before the new code arrives. If in-plugin update still
+fails, run this once at the repository root. It does not need `gh`, and it
+leaves uncommitted changes alone:
+
+```sh
+test -z "$(git status --porcelain)" || { echo "commit or discard local changes first"; exit 1; }
+git remote set-url origin https://github.com/HuangChenning/deepseek-plugin.git
+git fetch origin main
+git merge --ff-only FETCH_HEAD
+pnpm install
+```
+
+After you reach v0.5.2 or newer, the plugin keeps `origin` on the official
+HTTPS URL, so this bridge is not needed again.
 
 ### Local data
 
