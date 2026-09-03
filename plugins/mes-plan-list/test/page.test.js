@@ -353,3 +353,56 @@ test('preview failures report into an element that is visible at the time', () =
   const call = handler.slice(0, handler.indexOf('\n', handler.indexOf('exclusive(')))
   assert.match(call, /exclusive\(mailFeedback/, '预览反馈必须写到操作栏，而不是尚未显示的面板')
 })
+
+/*
+ * 升级要的是 GitHub 授权，不是「本机的 git 凭据」——后者正是让人以为自己已就绪、
+ * 直到 git pull 报错才发现没配的那句话。状态栏只放插件自己的设置页。
+ */
+test('the settings view says whether the update has GitHub authorization', () => {
+  const html = renderPage()
+  const settingsStart = html.indexOf('<section id="settings-view"')
+  const settingsView = html.slice(settingsStart, html.indexOf('</section>', settingsStart))
+
+  assert.match(settingsView, /id="github-auth"/, '设置页需要一行 GitHub 授权状态')
+  assert.doesNotMatch(html, /用你已有的 git 凭据/, '这句话把「本机有 git」说成了「已授权」')
+})
+
+/*
+ * 后端要跑 git 和 gh 两条子进程才能答这个问题，而计划列表页根本用不到它。挂在进入
+ * 设置视图时请求，只看列表的人就不必为它付这笔开销；这也满足「打开设置页不得联网」
+ * ——探针跑的全是本地命令。
+ */
+test('the GitHub authorization is read on entering settings, not on page load', () => {
+  const script = renderPage().split('<script>')[1]
+
+  const sync = script.slice(script.indexOf('const syncSettingsView'), script.indexOf("addEventListener('hashchange'"))
+  assert.match(sync, /loadGithubAuth\(\)/, '进入设置视图时才请求授权状态')
+
+  const bootstrap = script.slice(script.indexOf('refreshAuth()'), script.indexOf('loadPluginVersion()'))
+  assert.doesNotMatch(bootstrap, /loadGithubAuth/, '列表页用不到授权状态，不应在页面加载时就请求')
+})
+
+/*
+ * hint 来自后端，一律先转义再渲染；只有本地写死的 <code> 标签允许出现在结果里。
+ * 顺序反过来（先包 <code> 再转义）会把标签本身也转义掉，等于白包。
+ */
+test('renders the backend hint as escaped text with only locally added code tags', () => {
+  const script = renderPage().split('<script>')[1]
+
+  assert.match(script, /escapeHtml\(payload\.hint\)/, 'hint 必须走 escapeHtml')
+  assert.match(script, /escapeHtml\(payload\.hint\)\.replace\(/, '转义必须发生在包 <code> 之前')
+  assert.doesNotMatch(script, /githubAuth\.innerHTML = payload/, '后端字符串不得直接写进 innerHTML')
+})
+
+/*
+ * SSH 侧本地探不出真相：看得见私钥不代表 GitHub 接受它。用报错色渲染会把一个正常
+ * 状态说成故障，用 ok 色又是在撒谎——两边都不站，保持中性。
+ */
+test('an unverified SSH setup is painted as neither ready nor broken', () => {
+  const script = renderPage().split('<script>')[1]
+
+  const show = script.slice(script.indexOf('const showGithubAuth'), script.indexOf('const loadGithubAuth'))
+  assert.match(show, /'ssh-unverified'/, 'ssh-unverified 需要与其他失败状态区别对待')
+  assert.match(show, /delete githubAuth\.dataset\.tone/, 'ssh-unverified 不能带上报错色')
+  assert.match(show, /state === 'ready'/, 'ready 才允许显示为已就绪')
+})
