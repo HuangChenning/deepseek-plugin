@@ -48,6 +48,11 @@ All notable changes to this project will be documented in this file.
   `package.json`, `pnpm-lock.yaml` or `pnpm-workspace.yaml`. The install runs at
   the repository root only, and a failed install is reported as a failure — the
   update is never called successful when the result would not boot.
+- The GitHub-authorization check now lets git resolve which credential helper
+  applies, instead of scanning the raw config for `gh`. An empty helper value
+  resets git's accumulated list, so a config where the empty value comes after
+  `gh`'s leaves git with no helper at all — and the page used to call that
+  ready. A generic `credential.helper` with no URL section is now seen too.
 - A git operation that fails for authorization reasons now says what to do
   instead of showing git's own wording. A repository the account cannot see is
   distinguished from a session that is not logged in, so a permissions problem

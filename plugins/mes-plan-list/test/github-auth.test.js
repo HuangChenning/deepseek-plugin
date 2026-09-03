@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { classifyGithubAuth, remoteProtocol } from '../src/github-auth.js'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { classifyGithubAuth, hasGhCredentialHelper, remoteProtocol } from '../src/github-auth.js'
 
 const https = { remote: 'https://github.com/HuangChenning/deepseek-plugin.git' }
 const ssh = { remote: 'git@github.com:HuangChenning/deepseek-plugin.git' }
@@ -89,4 +93,43 @@ test('always says what to do next unless the state is already ready', () => {
   assert.deepEqual([...seen].sort(), [
     'logged-out', 'missing-gh', 'no-git-helper', 'ready', 'ssh-no-key', 'ssh-unverified', 'unknown',
   ])
+})
+
+/*
+ * helper 的**空值**在 git 语义里是把已累积的列表整个重置掉，所以「配置里出现过 gh」
+ * 不等于「git 会用它」——顺序才是判据。自己扫 `--get-all` 会把「gh 在前、空值在后」
+ * 读成已就绪，而 git 此时一个 helper 都不用，`git pull` 会卡在要用户名密码：这正是
+ * 本模块最不该犯的错——不该报就绪却报了。所以解析必须交回给 git。
+ */
+test('lets git resolve the helper list, because an empty value resets it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gh-helper-'))
+  const gh = 'helper = !/opt/homebrew/bin/gh auth git-credential'
+  const write = (name, body) => {
+    const path = join(dir, name)
+    writeFileSync(path, body)
+    return path
+  }
+  // 空值在 gh 之前：只是把系统级 helper 清掉，gh 依然生效。
+  const before = write('before', `[credential "https://github.com"]\n\thelper = \n\t${gh}\n`)
+  // 空值在 gh 之后：git 实际一个 helper 都不用。
+  const after = write('after', `[credential "https://github.com"]\n\t${gh}\n\thelper = \n`)
+  // 不带 URL 段的通用 helper 同样算数，`--get-all` 那条键根本看不见它。
+  const generic = write('generic', `[credential]\n\t${gh}\n`)
+
+  const saved = { global: process.env.GIT_CONFIG_GLOBAL, nosystem: process.env.GIT_CONFIG_NOSYSTEM }
+  process.env.GIT_CONFIG_NOSYSTEM = '1'
+  try {
+    process.env.GIT_CONFIG_GLOBAL = before
+    assert.equal(await hasGhCredentialHelper(), true)
+    process.env.GIT_CONFIG_GLOBAL = after
+    assert.equal(await hasGhCredentialHelper(), false, '空值排在后面时 git 无 helper，不能报已就绪')
+    process.env.GIT_CONFIG_GLOBAL = generic
+    assert.equal(await hasGhCredentialHelper(), true)
+  } finally {
+    for (const [name, value] of [['GIT_CONFIG_GLOBAL', saved.global], ['GIT_CONFIG_NOSYSTEM', saved.nosystem]]) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
