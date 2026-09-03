@@ -154,6 +154,23 @@ pnpm install
 
 **Restart DSH after updating** for the new code to load.
 
+### What an update does not need
+
+`pnpm register` does **not** need re-running. It links the profile at this
+directory, and an update changes what is inside the directory, not where it is.
+The one case that does need it is moving or renaming the clone: the profile's
+symlink then points at the old location, and DSH fails to load the plugin on its
+next start. Re-register from the repository root:
+
+```sh
+pnpm register
+```
+
+The automatic dependency install described above happens only on the in-plugin
+update. Updating from a terminal with `git pull` installs nothing, so run
+`pnpm install` yourself at the repository root whenever the pull touched
+`package.json` or `pnpm-lock.yaml`.
+
 ## Settings
 
 The absolute path to the `mes` binary is set in the DSH profile's cordis config,
