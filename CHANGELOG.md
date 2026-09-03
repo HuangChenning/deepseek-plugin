@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-03
+
 ### Added
 
 - The `mes` CLI path is configured in the DSH profile's `cordis.patch.yml`. The
@@ -254,3 +256,4 @@ published to npm or the DSH plugin market.
 [0.3.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.3.0
 [0.4.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.4.0
 [0.5.0]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.5.0
+[0.5.1]: https://github.com/HuangChenning/deepseek-plugin/releases/tag/v0.5.1
