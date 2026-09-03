@@ -12,6 +12,13 @@ All notable changes to this project will be documented in this file.
   database. A path the profile supplies wins over
   `~/.dsh/storages/mes-plan-list/config.json`, and is re-checked for being
   absolute before anything is executed with it.
+- The settings page says whether this machine has the GitHub authorization the
+  plugin's self-update needs, and names the command to run when it does not.
+  The check runs local commands only — opening the page contacts no network —
+  and the plugin never receives, stores, forwards or displays a token. An SSH
+  `origin` is never reported as ready: a private key on this machine does not
+  prove GitHub accepts it, so the honest answer is 无法确认 plus a self-test to
+  run.
 
 ### Changed
 
@@ -26,6 +33,26 @@ All notable changes to this project will be documented in this file.
 - The settings page no longer edits the `mes` CLI path, so the path stops
   having two editable sources. The validating API route is unchanged, and
   `config.json` still works as a fallback.
+
+### Fixed
+
+- Installing or updating the repository now says to run `pnpm install` at the
+  repository root. Without it the plugin's own dependencies are missing and DSH
+  fails to start — plugin registration creates symlinks, it does not install
+  packages.
+- `exceljs` and `nodemailer` are imported when the feature that needs them is
+  used, not when the plugin loads. A missing dependency now breaks the mail
+  mapping or the export alone instead of taking the whole DSH shell down with
+  it.
+- Updating the plugin installs dependencies again when the update moved
+  `package.json`, `pnpm-lock.yaml` or `pnpm-workspace.yaml`. The install runs at
+  the repository root only, and a failed install is reported as a failure — the
+  update is never called successful when the result would not boot.
+- A git operation that fails for authorization reasons now says what to do
+  instead of showing git's own wording. A repository the account cannot see is
+  distinguished from a session that is not logged in, so a permissions problem
+  no longer sends you round the login loop. Raw git output — which carries the
+  remote URL — never reaches the browser.
 
 ## [0.5.0] - 2026-09-03
 

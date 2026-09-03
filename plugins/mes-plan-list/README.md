@@ -98,9 +98,7 @@ the cache actually spans a wide range. **清空缓存** resets that span.
 The settings panel shows the checked-out branch and commit, checks the remote
 for newer commits on click, and can update in place.
 
-Updating runs `git pull --ff-only` in the local repository. This works with a
-**private** repository without the plugin handling any credentials: whoever runs
-it already has access, and git uses their existing credentials. That is why this
+Updating runs `git pull --ff-only` in the local repository. That is why this
 does not go through dshmarket or npm, both of which need a publicly installable
 source.
 
@@ -109,8 +107,52 @@ never taken from the request; it is always the current branch. A dirty working
 tree is refused rather than overwritten, and `--ff-only` means a diverged branch
 fails loudly instead of auto-merging into a state nobody reviewed.
 
-**Restart DSH after updating** for the new code to load. If a future version
-adds a runtime dependency, run `pnpm install` too.
+### The update needs GitHub authorization
+
+The repository is **private**, so pulling from it requires a GitHub
+authorization that can read it. Having git installed is not enough, and neither
+is being able to browse the repository in a signed-in browser. The settings page
+shows what your machine is actually set up for, and names the command to run
+when something is missing.
+
+The plugin never receives, stores, forwards, or displays a GitHub token. It
+checks whether authorization exists — it does not perform the login for you, and
+it does not change your remote URL, `~/.ssh/config`, or any git configuration.
+
+Two ways to be authorized, depending on how `origin` is addressed:
+
+- **HTTPS origin** — run `gh auth login` **and** `gh auth setup-git`. Both are
+  needed: `gh auth login` has a final step that configures git for you, and it
+  can be skipped. Skip it and `gh auth token` succeeds while `git pull` still
+  fails with `could not read Username`.
+- **SSH origin** — the key must be on your GitHub account, not merely present on
+  your machine. `gh auth login` with the SSH protocol uploads it for you.
+  `ssh -T git@github.com` tells you whether GitHub accepts it. If port 22 is
+  blocked on your network, route SSH over 443 by pointing `github.com` at
+  `ssh.github.com` port 443 in `~/.ssh/config`.
+
+For an SSH origin the settings page will not claim you are ready even when a key
+is present, because a local key proves nothing about what GitHub accepts. The
+honest answer only arrives when a pull is actually attempted, so update failures
+are translated into the specific command that fixes them.
+
+### Dependencies are installed for you
+
+When an update brings in a changed `package.json` or `pnpm-lock.yaml`, the
+plugin runs `pnpm install` at the repository root afterwards and reports the
+result. This matters because the plugin's modules import their dependencies at
+load time: pulling a commit that adds one without installing it leaves DSH
+unable to boot at all, not just this plugin unable to work.
+
+If that install fails, the page says so and does **not** report the update as
+successful. Recover by running `pnpm install` yourself at the repository root:
+
+```sh
+cd /path/to/deepseek-plugin
+pnpm install
+```
+
+**Restart DSH after updating** for the new code to load.
 
 ## Settings
 
