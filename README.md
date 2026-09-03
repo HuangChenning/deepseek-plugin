@@ -94,6 +94,12 @@ Either way, **restart DSH** afterwards so it loads the new code. The plugin is
 not published to npm or the DSH plugin market; this repository is the only
 source.
 
+The in-plugin update installs new dependencies for you when the pull changed
+`package.json` or `pnpm-lock.yaml`; a terminal `git pull` does not, so run
+`pnpm install` yourself in that case. `pnpm register` does not need re-running
+after an update — only after moving or renaming this clone, which leaves the
+profile's symlink pointing at the old path.
+
 ### Local data
 
 Query results are cached in a per-machine SQLite database at
